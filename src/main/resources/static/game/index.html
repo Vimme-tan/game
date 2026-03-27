@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D 闯关游戏</title>
+    <style>
+        :root{
+            --bg:#000000;
+            --panel:#111827;
+            --muted:#94a3b8;
+            --border:rgba(255,255,255,0.12);
+            --primary:#3b82f6;
+        }
+        body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: var(--bg); color: #e6edf3; }
+        .center { min-height: 100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+        .card { width: min(560px, calc(100vw - 28px)); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+        .auth-bg {
+            background: #000;
+        }
+        #landing {
+            position: relative;
+            overflow: hidden;
+        }
+        #landing::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: #000 center / cover no-repeat;
+            background-image: url("./assets/images/login_bg_placeholder.jpg");
+            z-index: 0;
+        }
+        #landing::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 1;
+        }
+        #landing > .card {
+            position: relative;
+            z-index: 2;
+            background: rgba(17, 24, 39, 0.9);
+            backdrop-filter: blur(2px);
+        }
+        .title { font-size: 22px; font-weight: 700; margin: 0 0 6px 0; }
+        .sub { margin: 0 0 16px 0; color: var(--muted); font-size: 13px; }
+        .row { display:flex; gap: 10px; flex-wrap: wrap; }
+        .btn {
+            appearance:none; border:0; border-radius: 10px; padding: 10px 14px;
+            background: var(--primary); color: #fff; cursor: pointer; font-weight: 600;
+            transition: transform .12s ease, filter .12s ease;
+        }
+        .btn:hover { transform: scale(1.03); filter: brightness(1.05); }
+        .btn.secondary { background: #334155; }
+        .btn.ghost { background: transparent; border: 1px solid var(--border); color: #e6edf3; }
+        .authSwitch .btn {
+            min-width: 140px;
+            padding: 14px 18px;
+            font-size: 18px;
+        }
+        .field { display:flex; flex-direction:column; gap:6px; margin: 10px 0; }
+        .field label { font-size: 12px; color: var(--muted); }
+        .field input {
+            padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
+            background: rgba(0,0,0,0.25); color: #e6edf3;
+        }
+        .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+        /* App layout */
+        #app { display:none; min-height: 100vh; }
+        .layout { display:flex; min-height: 100vh; }
+        .sidebar {
+            width: 20vw; min-width: 210px; max-width: 320px; padding: 18px; border-right: 1px solid var(--border);
+            background: rgba(0,0,0,0.15);
+            display:flex; flex-direction:column;
+        }
+        .brand { font-weight: 800; margin-bottom: 10px; }
+        .me { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+        .navWrap { flex: 1; display:flex; align-items:center; }
+        .nav { width: 100%; display:flex; flex-direction:column; gap: 10px; }
+        .nav .btn { width: 100%; padding: 12px 14px; }
+        .content { flex: 1; padding: 22px; }
+        .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+        .panelTitle { font-size: 16px; font-weight: 700; margin: 0 0 12px 0; }
+
+        /* Levels */
+        .levels { display:flex; gap: 12px; flex-wrap: wrap; }
+        .levelBtn {
+            width: 140px; height: 84px; border-radius: 14px;
+            border: 1px solid var(--border); background: rgba(255,255,255,0.04);
+            color: #e6edf3; cursor: pointer;
+            transition: transform .12s ease, filter .12s ease, opacity .12s ease;
+            display:flex; align-items:center; justify-content:center; flex-direction:column;
+            user-select:none;
+        }
+        .levelBtn:hover { transform: scale(1.04); }
+        .levelBtn.locked { opacity: 0.35; cursor: not-allowed; transform: none; filter: grayscale(1); }
+        .levelNum { font-size: 18px; font-weight: 800; }
+        .levelTitle { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+        /* Settings slider */
+        .sliderRow { display:flex; gap: 12px; align-items: center; }
+        input[type="range"]{ width: min(420px, 100%); }
+
+        /* Game host */
+        #gameHost { display:none; padding: 0; }
+        canvas { display:block; margin: 12px auto 0 auto; }
+    </style>
+</head>
+<body>
+<!-- Auth landing -->
+<div id="landing" class="center auth-bg">
+    <div class="card auth-bg">
+        <div class="title">2D 闯关游戏</div>
+        <div class="sub">请先登录或注册，然后进入主菜单开始游戏。</div>
+        <div class="row authSwitch" style="justify-content:center; margin-top: 10px;">
+            <button id="btnShowLogin" class="btn">登录</button>
+            <button id="btnShowRegister" class="btn secondary">注册</button>
+        </div>
+
+        <div id="authForms" style="margin-top: 14px; display:none;">
+            <div id="loginForm">
+                <div class="field">
+                    <label>用户名</label>
+                    <input id="loginUsername" maxlength="64" placeholder="例如：tom"/>
+                </div>
+                <div class="field">
+                    <label>密码</label>
+                    <input id="loginPassword" type="password" maxlength="72" placeholder="至少 6 位"/>
+                </div>
+                <div class="row">
+                    <button id="btnLogin" class="btn">登录</button>
+                    <button id="btnCancelAuth" class="btn ghost">取消</button>
+                </div>
+            </div>
+
+            <div id="registerForm" style="display:none;">
+                <div class="field">
+                    <label>用户名</label>
+                    <input id="regUsername" maxlength="64" placeholder="至少 3 位"/>
+                </div>
+                <div class="field">
+                    <label>密码</label>
+                    <input id="regPassword" type="password" maxlength="72" placeholder="至少 6 位"/>
+                </div>
+                <div class="row">
+                    <button id="btnRegister" class="btn secondary">注册</button>
+                    <button id="btnCancelAuth2" class="btn ghost">取消</button>
+                </div>
+            </div>
+
+            <div id="authError" class="hint" style="color:#fca5a5; display:none;"></div>
+        </div>
+        <div class="hint">提示：注册/登录成功后会自动进入主菜单。</div>
+    </div>
+</div>
+
+<!-- Main app -->
+<div id="app">
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">主菜单</div>
+            <div id="meText" class="me"></div>
+            <div class="navWrap">
+                <div class="nav">
+                    <button id="navSingle" class="btn">单人闯关</button>
+                    <button id="navCoop" class="btn secondary">双人闯关</button>
+                    <button id="navRace" class="btn secondary">双人竞速</button>
+                    <button id="navSettings" class="btn secondary">设置</button>
+                    <button id="navLogout" class="btn ghost">退出</button>
+                </div>
+            </div>
+        </aside>
+        <main class="content">
+            <section id="panelModeHint" class="panel" style="display:none;">
+                <div class="panelTitle">模式说明</div>
+                <div id="modeHintText" class="hint" style="font-size:14px; color:#e6edf3; margin-top: 0;">模式占位内容。</div>
+            </section>
+
+            <section id="panelStart" class="panel">
+                <div class="panelTitle">选择关卡</div>
+                <div id="levels" class="levels"></div>
+                <div class="hint">规则：只有通关上一关，下一关才会点亮。</div>
+            </section>
+
+            <section id="panelSettings" class="panel" style="display:none;">
+                <div class="panelTitle">设置</div>
+                <div class="sliderRow">
+                    <div style="min-width:72px; color: var(--muted); font-size: 12px;">音量</div>
+                    <input id="volumeSlider" type="range" min="0" max="100" value="70"/>
+                    <div id="volumeValue" style="width:40px; text-align:right; color: var(--muted); font-size: 12px;">70</div>
+                </div>
+                <div class="hint">音量会实时生效并自动保存到账号设置。</div>
+            </section>
+
+            <section id="gameHost" class="panel" style="margin-top: 18px;">
+                <div class="panelTitle">游戏中</div>
+                <div class="hint">方向键移动，抵达终点即通关并解锁下一关。</div>
+                <div id="phaserMount"></div>
+            </section>
+        </main>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
+<script src="./game.js"></script>
+</body>
+</html>
+
