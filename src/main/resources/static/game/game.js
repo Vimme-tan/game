@@ -1,20 +1,13 @@
-// Game client (no framework).
-// Flow: Login/Register -> Main menu -> Levels (locked/unlocked) -> Play -> Complete -> Unlock next.
-
 (() => {
   const $ = (id) => document.getElementById(id);
-
   const ui = {
     landing: $("landing"),
     app: $("app"),
-    authForms: $("authForms"),
+    tabLogin: $("tabLogin"),
+    tabRegister: $("tabRegister"),
     loginForm: $("loginForm"),
     registerForm: $("registerForm"),
     authError: $("authError"),
-    btnShowLogin: $("btnShowLogin"),
-    btnShowRegister: $("btnShowRegister"),
-    btnCancelAuth: $("btnCancelAuth"),
-    btnCancelAuth2: $("btnCancelAuth2"),
     btnLogin: $("btnLogin"),
     btnRegister: $("btnRegister"),
     loginUsername: $("loginUsername"),
@@ -28,11 +21,13 @@
     navRace: $("navRace"),
     navSettings: $("navSettings"),
     navLogout: $("navLogout"),
-    panelModeHint: $("panelModeHint"),
-    modeHintText: $("modeHintText"),
-    panelStart: $("panelStart"),
+    panelMenu: $("panelMenu"),
+    panelLevels: $("panelLevels"),
     panelSettings: $("panelSettings"),
-    levels: $("levels"),
+    btnBackFromLevels: $("btnBackFromLevels"),
+    btnBackFromSettings: $("btnBackFromSettings"),
+    levelsTitle: $("levelsTitle"),
+    levelsGrid: $("levelsGrid"),
 
     volumeSlider: $("volumeSlider"),
     volumeValue: $("volumeValue"),
@@ -43,17 +38,46 @@
 
   const api = {
     async json(url, options = {}) {
-      const r = await fetch(url, {
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-        ...options,
-      });
-      if (!r.ok) {
-        const text = await r.text().catch(() => "");
-        throw new Error(text || `HTTP ${r.status}`);
+      // When hosting on GitHub/Gitee Pages there is usually no backend (/api/*),
+      // so we provide minimal mock data to keep the front-end playable.
+      const getMock = () => {
+        const u = String(url || "").toLowerCase();
+        if (u === "/api/auth/me") {
+          return {
+            username: "Guest",
+            maxUnlockedLevel: 1,
+            volume: 70,
+          };
+        }
+        if (u === "/api/settings/volume") return null;
+        if (u === "/api/progress/complete") return null;
+        if (u === "/api/auth/logout") return null;
+        if (u === "/api/auth/login") return { ok: true };
+        if (u === "/api/auth/register") return { ok: true };
+        if (u.startsWith("/api/debug/log")) return null;
+        // For levelConfig and other endpoints, you can extend mock later.
+        return undefined;
+      };
+
+      try {
+        const r = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options,
+        });
+        if (!r.ok) {
+          const mock = getMock();
+          if (mock !== undefined) return mock;
+          const text = await r.text().catch(() => "");
+          throw new Error(text || `HTTP ${r.status}`);
+        }
+        if (r.status === 204) return null;
+        return r.json();
+      } catch (e) {
+        const mock = getMock();
+        if (mock !== undefined) return mock;
+        throw e;
       }
-      if (r.status === 204) return null;
-      return r.json();
     },
     me() {
       return this.json("/api/auth/me", { method: "GET" });
@@ -88,9 +112,9 @@
   };
 
   const assets = {
-    authBgImage: "./assets/images/login_bg_placeholder.jpg",
     menuBgm: "./assets/audio/bgm/menu_bgm.mp3",
     clickSfx: "./assets/audio/sfx/btn_click.wav",
+    level1Tmj: "./assets/maps/level1/level1.tmj",
   };
 
   const state = {
@@ -106,6 +130,15 @@
     hasClickAudio: false,
     audioUnlocked: false,
   };
+
+  function debugLog(runId, hypothesisId, location, message, data) {
+    // #region agent log
+    // 1) Try local debug ingest (may be unavailable to browser).
+    fetch("http://127.0.0.1:7653/ingest/610664d2-1787-4460-9926-1f3c1ea1773e",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"377d1b"},body:JSON.stringify({sessionId:"377d1b",runId,hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
+    // 2) Always send to same-origin backend logger for runtime evidence.
+    fetch("/api/debug/log",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({runId,hypothesisId,location,message,data})}).catch(()=>{});
+    // #endregion
+  }
 
   function showAuthError(msg) {
     ui.authError.style.display = "block";
@@ -128,15 +161,27 @@
   }
 
   function showPanel(which) {
-    ui.panelStart.style.display = which === "start" ? "block" : "none";
-    ui.panelModeHint.style.display = which === "modeHint" ? "block" : "none";
+    ui.panelMenu.style.display = which === "menu" ? "flex" : "none";
+    ui.panelLevels.style.display = which === "levels" ? "block" : "none";
     ui.panelSettings.style.display = which === "settings" ? "block" : "none";
+    if (which !== "levels") {
+      ui.gameHost.style.display = "none";
+      ui.levelsGrid.style.display = "";
+      ui.levelsTitle.style.display = "";
+      destroyPhaser();
+    }
+    debugLog("run_ui_layout", "H5_panel_visibility", "game.js:showPanel", "panel_switched", {
+      panel: which,
+      mode: state.mode,
+    });
   }
 
-  function setModeHint(mode, text) {
-    state.mode = mode;
-    ui.modeHintText.textContent = text;
-    showPanel("modeHint");
+  function setLevelPlayLayout(isPlaying) {
+    // When playing a level: hide level grid/title and center the game view.
+    ui.levelsGrid.style.display = isPlaying ? "none" : "";
+    ui.levelsTitle.style.display = isPlaying ? "none" : "";
+    ui.gameHost.style.display = isPlaying ? "block" : "none";
+    ui.panelLevels.classList.toggle("isPlaying", !!isPlaying);
   }
 
   async function refreshMe() {
@@ -144,22 +189,34 @@
     ui.meText.textContent = `当前用户：${state.me.username}（已解锁到：${state.me.maxUnlockedLevel ?? 1}）`;
   }
 
-  async function renderLevels() {
-    const list = await api.levels();
-    ui.levels.innerHTML = "";
-    list.forEach((l) => {
+  function renderLevelsForMode() {
+    ui.levelsGrid.innerHTML = "";
+    const totalLevels = 9;
+    const firstPlayable = 1;
+    for (let i = 1; i <= totalLevels; i++) {
       const btn = document.createElement("button");
-      btn.className = "levelBtn" + (l.unlocked ? "" : " locked");
+      const unlocked = i === firstPlayable;
+      btn.className = "levelCell" + (unlocked ? "" : " locked");
       btn.type = "button";
-      btn.innerHTML = `<div class="levelNum">关卡 ${l.levelId}</div><div class="levelTitle">${l.title}</div>`;
-      if (!l.unlocked) {
+      btn.textContent = `第 ${i} 关`;
+      if (!unlocked) {
         btn.disabled = true;
-        btn.title = "请先通关上一关";
       } else {
-        btn.addEventListener("click", () => startGame(l.levelId));
+        btn.addEventListener("click", async () => {
+          playClickSfx();
+          debugLog("run_ui_layout", "H5_panel_visibility", "game.js:renderLevelsForMode", "level_clicked", {
+            mode: state.mode,
+            levelId: i,
+          });
+          if (state.mode === "single" && i === 1) {
+            await startGame(1);
+            return;
+          }
+          alert("待开发中");
+        });
       }
-      ui.levels.appendChild(btn);
-    });
+      ui.levelsGrid.appendChild(btn);
+    }
   }
 
   function destroyPhaser() {
@@ -204,9 +261,11 @@
     state.menuBgmAudio.addEventListener("canplaythrough", () => {
       state.hasBgmAudio = true;
       ensureBgmPlayback();
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "bgm_ready", { src: assets.menuBgm });
     });
     state.menuBgmAudio.addEventListener("error", () => {
       state.hasBgmAudio = false;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "bgm_error", { src: assets.menuBgm });
     });
 
     // Click SFX.
@@ -214,9 +273,11 @@
     state.clickAudio.preload = "auto";
     state.clickAudio.addEventListener("canplaythrough", () => {
       state.hasClickAudio = true;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "click_ready", { src: assets.clickSfx });
     });
     state.clickAudio.addEventListener("error", () => {
       state.hasClickAudio = false;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "click_error", { src: assets.clickSfx });
     });
 
     applyVolumeToMedia();
@@ -241,8 +302,13 @@
   }
 
   async function startGame(levelId) {
+    if (state.mode === "single" && levelId === 1) {
+      await startTilemapLevelOne(levelId);
+      return;
+    }
+
     state.currentLevelId = levelId;
-    ui.gameHost.style.display = "block";
+    setLevelPlayLayout(true);
     destroyPhaser();
 
     const cfg = await api.levelConfig(levelId);
@@ -344,32 +410,549 @@
     });
   }
 
+  async function startTilemapLevelOne(levelId) {
+    state.currentLevelId = levelId;
+    setLevelPlayLayout(true);
+    destroyPhaser();
+
+    const tmjUrl = new URL(assets.level1Tmj, window.location.href).toString();
+    let tmjData;
+    try {
+      const r = await fetch(tmjUrl, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      tmjData = await r.json();
+      debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tmj_loaded", {
+        tmjUrl,
+        width: tmjData.width,
+        height: tmjData.height,
+        tilewidth: tmjData.tilewidth,
+        tileheight: tmjData.tileheight,
+        tilesetCount: Array.isArray(tmjData.tilesets) ? tmjData.tilesets.length : 0,
+      });
+    } catch (e) {
+      debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tmj_load_error", {
+        tmjUrl,
+        error: e?.message || String(e),
+      });
+      alert(`第一关地图加载失败：${e?.message || e}`);
+      return;
+    }
+
+    const tmjBase = new URL(tmjUrl);
+
+    function decodeBase64ToBytes(b64) {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+
+    function bytesToUint32LEArray(bytes) {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const out = [];
+      for (let i = 0; i < bytes.byteLength; i += 4) {
+        out.push(view.getUint32(i, true));
+      }
+      return out;
+    }
+
+    function inflateZlibBase64ToGids(b64) {
+      const bytes = decodeBase64ToBytes(b64);
+      // pako is loaded via CDN in index.html
+      const inflated = window.pako.inflate(bytes);
+      const raw = bytesToUint32LEArray(inflated);
+      // Tiled stores flip flags in highest bits; Phaser expects bare gids.
+      // We'll keep only the low 29 bits (0x1FFFFFFF).
+      let max = 0;
+      let nonZero = 0;
+      let highBitCount = 0;
+      const masked = raw.map((v) => {
+        if (v !== 0) nonZero += 1;
+        if (v > max) max = v;
+        if ((v & 0xE0000000) !== 0) highBitCount += 1;
+        return v & 0x1fffffff;
+      });
+      debugLog("run_ui_layout", "H7_layer_data", "game.js:inflateZlibBase64ToGids", "layer_gid_stats", {
+        nonZero,
+        maxRaw: max,
+        highBitCount,
+      });
+      return masked;
+    }
+
+    // 1) Decompress tile layers (Phaser cannot parse zlib-compressed layers).
+    const layers = Array.isArray(tmjData.layers) ? tmjData.layers : [];
+    let decompressedLayers = 0;
+    for (const layer of layers) {
+      if (!layer || layer.type !== "tilelayer") continue;
+      if (layer.encoding === "base64" && layer.compression === "zlib" && typeof layer.data === "string") {
+        try {
+          const gids = inflateZlibBase64ToGids(layer.data);
+          layer.data = gids;
+          delete layer.encoding;
+          delete layer.compression;
+          decompressedLayers += 1;
+        } catch (e) {
+          debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "layer_decompress_error", {
+            layerName: layer.name,
+            error: e?.message || String(e),
+          });
+        }
+      }
+    }
+    debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "layers_decompressed", {
+      decompressedLayers,
+      layerCount: layers.length,
+    });
+
+    // 2) Inline external TSX tilesets (Phaser cannot parse external tilesets from tmj).
+    const rawTilesets = Array.isArray(tmjData.tilesets) ? tmjData.tilesets : [];
+    const embeddedTilesets = [];
+    const tilesetDefs = [];
+
+    function resolveTilesetImageUrl(imageSource, baseUrl) {
+      // imageSource may contain paths that don't match our runtime assets folder.
+      // We'll try a few fallbacks that match this project's structure:
+      // - sticker-knight/map/*.png  -> map/*.png  (sibling of dung.tsx)
+      // - basename only -> map/<basename>
+      // - original as-is
+      const candidates = [];
+      if (typeof imageSource === "string" && imageSource) {
+        if (imageSource.includes("sticker-knight/map/")) {
+          candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
+        }
+        // Prefer the normalized form first; the original `sticker-knight/...` path is usually
+        // not present at runtime in this repo and would otherwise cause 404s.
+        candidates.push(imageSource);
+        const baseName = imageSource.split("/").pop();
+        if (baseName) {
+          candidates.push(`map/${baseName}`);
+          candidates.push(`./map/${baseName}`);
+        }
+      }
+      for (const c of candidates) {
+        try {
+          return new URL(c, baseUrl).toString();
+        } catch {
+          // keep trying
+        }
+      }
+      return null;
+    }
+
+    for (let i = 0; i < rawTilesets.length; i++) {
+      const ts = rawTilesets[i];
+      if (!ts) continue;
+
+      // Already embedded in tmj (rare for your current export, but supported).
+      if (ts.image) {
+        const imageUrl = new URL(ts.image, tmjBase).toString();
+        tilesetDefs.push({
+          firstgid: ts.firstgid || 1,
+          name: ts.name || `tileset_${i}`,
+          tilewidth: ts.tilewidth || tmjData.tilewidth || 32,
+          tileheight: ts.tileheight || tmjData.tileheight || 32,
+          margin: ts.margin || 0,
+          spacing: ts.spacing || 0,
+          imageUrl,
+          key: `ts_${i}`,
+        });
+        embeddedTilesets.push({ ...ts, image: new URL(ts.image, tmjBase).pathname.replace(/^\/+/, "") });
+        continue;
+      }
+
+      if (ts.source) {
+        const tsxUrl = new URL(ts.source, tmjBase).toString();
+        const tsxBaseName = (ts.source || "").split("/").pop();
+        const fallbackTsxUrl = tsxBaseName ? new URL(`./${tsxBaseName}`, tmjBase).toString() : null;
+        // Some Windows renames can accidentally create filenames like `dung .tsx`
+        // (space before `.tsx`). Your TMJ/ts.source usually expects `dung.tsx`,
+        // so add a couple of safe variants as extra fetch candidates.
+        const tsxCandidates = [];
+        if (fallbackTsxUrl) tsxCandidates.push(fallbackTsxUrl);
+        if (tsxBaseName && tsxBaseName.toLowerCase().endsWith(".tsx")) {
+          const stem = tsxBaseName.slice(0, -4); // remove ".tsx"
+          const spaced = `${stem} .tsx`;
+          tsxCandidates.push(new URL(`./${spaced}`, tmjBase).toString());
+        }
+        try {
+          let r = await fetch(tsxUrl, { credentials: "same-origin" });
+          if (!r.ok) {
+            debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tsx_fetch_fallback", {
+              original: tsxUrl,
+              candidates: tsxCandidates,
+              status: r.status,
+            });
+            let last = r;
+            for (const cand of tsxCandidates) {
+              try {
+                const rc = await fetch(cand, { credentials: "same-origin" });
+                if (rc && rc.ok) {
+                  r = rc;
+                  break;
+                }
+                last = rc;
+              } catch {
+                // Keep trying candidates.
+              }
+            }
+            if (!r.ok) throw new Error(`HTTP ${last?.status ?? "unknown"}`);
+          }
+          const tsxText = await r.text();
+          const xml = new DOMParser().parseFromString(tsxText, "application/xml");
+          const root = xml.querySelector("tileset");
+          if (!root) throw new Error("invalid tsx format");
+
+          const name = root.getAttribute("name") || `tileset_${i}`;
+          const tilewidth = Number(root.getAttribute("tilewidth") || tmjData.tilewidth || 32);
+          const tileheight = Number(root.getAttribute("tileheight") || tmjData.tileheight || 32);
+          const margin = Number(root.getAttribute("margin") || 0);
+          const spacing = Number(root.getAttribute("spacing") || 0);
+          const tilecount = Number(root.getAttribute("tilecount") || 0);
+          const columns = Number(root.getAttribute("columns") || 0);
+
+          const resolvedTsxUrl = r.url || (fallbackTsxUrl || tsxUrl);
+
+          // TSX may be a single-image tileset or an image-collection tileset.
+          const tiles = Array.from(xml.querySelectorAll("tile")).map((tileNode) => {
+            const id = Number(tileNode.getAttribute("id") || "0");
+            const img = tileNode.querySelector("image");
+            if (!img) return null;
+            const src = img.getAttribute("source");
+            if (!src) return null;
+            const w = Number(img.getAttribute("width") || 0);
+            const h = Number(img.getAttribute("height") || 0);
+            const url = resolveTilesetImageUrl(src, resolvedTsxUrl);
+            if (!url) return null;
+            const solidProp = tileNode.querySelector('properties > property[name="solid"]');
+            const solid =
+              solidProp &&
+              String(solidProp.getAttribute("type") || "").toLowerCase() === "bool" &&
+              String(solidProp.getAttribute("value") || "").toLowerCase() === "true";
+            return { id, source: src, imageUrl: url, width: w, height: h, solid, key: `ts_${i}_tile_${id}` };
+          }).filter(Boolean);
+
+          const tilesetImageNode = root.querySelector(":scope > image");
+          const singleImageSource = tilesetImageNode?.getAttribute("source") || null;
+          const singleImageUrl = singleImageSource ? resolveTilesetImageUrl(singleImageSource, resolvedTsxUrl) : null;
+          const singleImageWidth = Number(tilesetImageNode?.getAttribute("width") || 0);
+          const singleImageHeight = Number(tilesetImageNode?.getAttribute("height") || 0);
+
+          tilesetDefs.push({
+            firstgid: ts.firstgid || 1,
+            name,
+            tilewidth,
+            tileheight,
+            margin,
+            spacing,
+            tilecount,
+            columns,
+            kind: singleImageUrl ? "single" : "collection",
+            imageUrl: singleImageUrl,
+            key: `ts_${i}`,
+            tiles,
+          });
+
+          // Embed minimal tileset fields into tmjData (kept for compatibility/logging).
+          embeddedTilesets.push({
+            firstgid: ts.firstgid || 1,
+            name,
+            tilewidth,
+            tileheight,
+            margin,
+            spacing,
+            tilecount,
+            columns,
+            ...(singleImageSource
+              ? { image: singleImageSource, imagewidth: singleImageWidth, imageheight: singleImageHeight }
+              : {}),
+          });
+
+          debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tsx_loaded", {
+            tsxUrl: resolvedTsxUrl,
+            tilesetName: name,
+            kind: singleImageUrl ? "single" : "collection",
+            tileImages: tiles.length,
+          });
+        } catch (e) {
+          debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tsx_load_error", {
+            tsxUrl,
+            error: e?.message || String(e),
+          });
+        }
+      }
+    }
+
+    tmjData.tilesets = embeddedTilesets;
+    debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tilesets_inlined", {
+      rawTilesetCount: rawTilesets.length,
+      embeddedTilesetCount: embeddedTilesets.length,
+      tilesetDefsCount: tilesetDefs.length,
+    });
+    const objectLayers = (tmjData.layers || []).filter((l) => l.type === "objectgroup");
+    const spawnObj = objectLayers.flatMap((l) => l.objects || []).find((o) => (o.name || "").toLowerCase() === "spawn");
+    const goalObj = objectLayers.flatMap((l) => l.objects || []).find((o) => (o.name || "").toLowerCase() === "goal");
+
+    // Build a gid->tileImage definition table from tilesetDefs.
+    function buildGidResolver() {
+      const sorted = [...tilesetDefs].sort((a, b) => (a.firstgid || 1) - (b.firstgid || 1));
+      return function resolveGid(gid) {
+        if (!gid) return null;
+        let chosen = null;
+        for (let i = 0; i < sorted.length; i++) {
+          const ts = sorted[i];
+          const fg = ts.firstgid || 1;
+          const nextFg = i + 1 < sorted.length ? sorted[i + 1].firstgid || Infinity : Infinity;
+          if (gid >= fg && gid < nextFg) {
+            chosen = ts;
+            break;
+          }
+        }
+        if (!chosen) return null;
+        const tileId = gid - (chosen.firstgid || 1);
+        const tile = (chosen.tiles || []).find((t) => t.id === tileId);
+        if (tile) return { ...tile, tileId, tileset: chosen };
+        // Fallback for single-image tilesets (not used in your current dung.tsx, but kept).
+        if (chosen.kind === "single" && chosen.imageUrl) {
+          return { key: chosen.key, imageUrl: chosen.imageUrl, width: chosen.tilewidth, height: chosen.tileheight, tileId, tileset: chosen };
+        }
+        return null;
+      };
+    }
+
+    const resolveGid = buildGidResolver();
+
+    const scene = {
+      preload: function () {
+        this._loadErrors = [];
+        this.load.on("loaderror", (file) => {
+          this._loadErrors.push({ key: file?.key, url: file?.url || file?.src, type: file?.type });
+          debugLog("run_ui_layout", "H6_tmj_load", "game.js:preload", "phaser_load_error", {
+            key: file?.key,
+            type: file?.type,
+            url: file?.url,
+            src: file?.src,
+          });
+        });
+
+        // Load all tile images referenced by tilesets (image-collection friendly).
+        let tileImageCount = 0;
+        tilesetDefs.forEach((ts) => {
+          if (ts.kind === "single" && ts.imageUrl) {
+            this.load.image(ts.key, ts.imageUrl);
+            tileImageCount += 1;
+            return;
+          }
+          (ts.tiles || []).forEach((t) => {
+            this.load.image(t.key, t.imageUrl);
+            tileImageCount += 1;
+          });
+        });
+        debugLog("run_ui_layout", "H6_tmj_load", "game.js:preload", "tileset_images_queued", {
+          tilesetCount: tilesetDefs.length,
+          tileImageCount,
+        });
+      },
+      create: function () {
+        const mapW = tmjData.width || 1;
+        const mapH = tmjData.height || 1;
+        const tw = tmjData.tilewidth || 32;
+        const th = tmjData.tileheight || 32;
+        const worldW = mapW * tw;
+        const worldH = mapH * th;
+
+        // Simple background.
+        this.add.rectangle(worldW / 2, worldH / 2, worldW, worldH, 0x0b1220).setOrigin(0.5);
+
+        // Render tile layers by placing images directly (works for image-collection tilesets).
+        const layers = (tmjData.layers || []).filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
+        debugLog("run_ui_layout", "H8_layer_render", "game.js:create", "tilelayer_names", {
+          names: layers.map((l) => l.name),
+        });
+
+        for (const layer of layers) {
+          if (layer.visible === false) continue;
+          for (let idx = 0; idx < layer.data.length; idx++) {
+            const gid = layer.data[idx] & 0x1fffffff;
+            if (!gid) continue;
+            const x = idx % mapW;
+            const y = Math.floor(idx / mapW);
+            const tile = resolveGid(gid);
+            if (!tile) continue;
+
+            const img = this.add.image(x * tw, (y + 1) * th, tile.key).setOrigin(0, 1);
+            if (typeof layer.opacity === "number") img.setAlpha(layer.opacity);
+          }
+        }
+
+        // Physics & platformer controls.
+        this.physics.world.setBounds(0, 0, worldW, worldH);
+        this.physics.world.gravity.y = 900;
+
+        // Collisions:
+        // - Primary: tiles with TSX property `solid=true` (your tileset uses this).
+        // - Optional: if TMJ has an object layer named `solid`, use it instead (hand-authored).
+        const solidObjectLayer = (tmjData.layers || []).find(
+          (l) => l && l.type === "objectgroup" && String(l.name || "").toLowerCase() === "solid"
+        );
+        this.solids = this.physics.add.staticGroup();
+
+        if (solidObjectLayer && Array.isArray(solidObjectLayer.objects) && solidObjectLayer.objects.length) {
+          let added = 0;
+          for (const o of solidObjectLayer.objects) {
+            if (!o || typeof o.x !== "number" || typeof o.y !== "number") continue;
+            const w = typeof o.width === "number" && o.width > 0 ? o.width : tw;
+            const h = typeof o.height === "number" && o.height > 0 ? o.height : th;
+            const body = this.add.rectangle(o.x + w / 2, o.y + h / 2, w, h, 0x000000, 0);
+            this.physics.add.existing(body, true);
+            this.solids.add(body);
+            added += 1;
+          }
+          this.solids.refresh();
+          debugLog("run_ui_layout", "H8_layer_render", "game.js:create", "collision_solid_objectlayer_loaded", {
+            objects: solidObjectLayer.objects.length,
+            bodies: added,
+          });
+        } else {
+          // Build static collision rectangles by scanning tile layers and using `solid=true` metadata.
+          let added = 0;
+          let solidTiles = 0;
+          // Prefer a layer named like "solid" if it exists; otherwise scan all tile layers.
+          const solidTileLayer = layers.find((l) => String(l.name || "").toLowerCase().includes("solid")) || null;
+          const scanLayers = solidTileLayer ? [solidTileLayer] : layers;
+
+          for (const layer of scanLayers) {
+            if (!layer || !Array.isArray(layer.data)) continue;
+            for (let y = 0; y < mapH; y++) {
+              let x = 0;
+              while (x < mapW) {
+                const idx = y * mapW + x;
+                const gid = layer.data[idx] & 0x1fffffff;
+                const tile = gid ? resolveGid(gid) : null;
+                const isSolid = !!tile?.solid;
+                if (!isSolid) {
+                  x += 1;
+                  continue;
+                }
+                solidTiles += 1;
+                const x0 = x;
+                // Merge horizontal runs of solid tiles into one body.
+                while (x < mapW) {
+                  const gid2 = layer.data[y * mapW + x] & 0x1fffffff;
+                  const t2 = gid2 ? resolveGid(gid2) : null;
+                  if (!t2?.solid) break;
+                  x += 1;
+                }
+                const runW = (x - x0) * tw;
+                const body = this.add.rectangle(x0 * tw + runW / 2, y * th + th / 2, runW, th, 0x000000, 0);
+                this.physics.add.existing(body, true);
+                this.solids.add(body);
+                added += 1;
+              }
+            }
+          }
+
+          this.solids.refresh();
+          debugLog("run_ui_layout", "H8_layer_render", "game.js:create", "collision_solid_tiles_built", {
+            bodies: added,
+            solidTiles,
+            scannedLayers: scanLayers.map((l) => l.name),
+          });
+        }
+
+        // Player sprite: prefer a loaded "hero" tile image if present.
+        const heroTile = tilesetDefs.flatMap((ts) => ts.tiles || []).find((t) => String(t.source || "").toLowerCase().includes("hero.png"));
+        const playerKey = heroTile?.key || (tilesetDefs[0]?.tiles?.[0]?.key ?? null);
+        const spawnX = spawnObj ? spawnObj.x + (spawnObj.width || tw) / 2 : tw * 2;
+        const spawnY = spawnObj ? spawnObj.y - (spawnObj.height || th) / 2 : th * 2;
+        // Ensure we spawn inside bounds even if no spawn object exists.
+        const safeSpawnY = Math.max(th, Math.min(worldH - th, spawnY));
+
+        if (playerKey) {
+          this.player = this.physics.add.sprite(spawnX, safeSpawnY, playerKey);
+          this.player.setOrigin(0.5, 1);
+          this.player.setScale(0.5);
+        } else {
+          this.player = this.physics.add.sprite(spawnX, safeSpawnY, "__missing_player__");
+        }
+        this.player.body.setCollideWorldBounds(true);
+        this.player.body.setDragX(900);
+        this.player.body.setMaxVelocity(220, 800);
+        this.player.body.setSize(Math.max(14, tw * 0.55), Math.max(18, th * 0.85), true);
+
+        this.goal = this.add.rectangle(worldW - tw * 2, th * 2, Math.max(18, tw * 0.7), Math.max(18, th * 0.7), 0xfbbf24);
+        this.physics.add.existing(this.goal, true);
+
+        this.keys = this.input.keyboard.createCursorKeys();
+        this.keyJump = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        this.finished = false;
+
+        this.physics.add.collider(this.player, this.solids);
+        this.physics.add.overlap(this.player, this.goal, async () => {
+          if (this.finished) return;
+          this.finished = true;
+          const score = 10000;
+          try {
+            await api.complete(levelId, score);
+            await refreshMe();
+            alert(`第一关通关成功！得分：${score}`);
+          } catch (e) {
+            alert(`通关提交失败：${e.message || e}`);
+          }
+        });
+
+        this.cameras.main.setBounds(0, 0, worldW, worldH);
+        this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+        this.cameras.main.setZoom(1);
+      },
+      update: function () {
+        if (!this.player || !this.player.body) return;
+        const speed = 200;
+        const left = this.keys.left.isDown;
+        const right = this.keys.right.isDown;
+
+        if (left) this.player.setVelocityX(-speed);
+        else if (right) this.player.setVelocityX(speed);
+        else this.player.setVelocityX(0);
+
+        const wantJump = Phaser.Input.Keyboard.JustDown(this.keys.up) || Phaser.Input.Keyboard.JustDown(this.keyJump);
+        if (wantJump && this.player.body.blocked.down) {
+          this.player.setVelocityY(-420);
+        }
+      },
+    };
+
+    state.phaser = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: ui.phaserMount,
+      width: Math.min(1080, Math.max(640, window.innerWidth - 120)),
+      height: Math.min(720, Math.max(420, window.innerHeight - 180)),
+      backgroundColor: "#0b1220",
+      physics: { default: "arcade", arcade: { debug: false } },
+      scene,
+    });
+  }
+
   function initLandingButtons() {
-    ui.btnShowLogin.addEventListener("click", () => {
+    ui.tabLogin.addEventListener("click", () => {
       playClickSfx();
       ensureBgmPlayback();
       clearAuthError();
-      ui.authForms.style.display = "block";
+      ui.tabLogin.classList.add("active");
+      ui.tabRegister.classList.remove("active");
       ui.loginForm.style.display = "block";
       ui.registerForm.style.display = "none";
+      debugLog("run_ui_layout", "H4_auth_layout", "game.js:initLandingButtons", "tab_login_selected", {});
     });
-    ui.btnShowRegister.addEventListener("click", () => {
+    ui.tabRegister.addEventListener("click", () => {
       playClickSfx();
       ensureBgmPlayback();
       clearAuthError();
-      ui.authForms.style.display = "block";
+      ui.tabRegister.classList.add("active");
+      ui.tabLogin.classList.remove("active");
       ui.loginForm.style.display = "none";
       ui.registerForm.style.display = "block";
-    });
-    ui.btnCancelAuth.addEventListener("click", () => {
-      playClickSfx();
-      ui.authForms.style.display = "none";
-      clearAuthError();
-    });
-    ui.btnCancelAuth2.addEventListener("click", () => {
-      playClickSfx();
-      ui.authForms.style.display = "none";
-      clearAuthError();
+      debugLog("run_ui_layout", "H4_auth_layout", "game.js:initLandingButtons", "tab_register_selected", {});
     });
 
     ui.btnLogin.addEventListener("click", async () => {
@@ -402,18 +985,37 @@
   function initAppNav() {
     ui.navSingle.addEventListener("click", () => {
       playClickSfx();
-      setModeHint("single", "单人闯关：已接入关卡列表，可直接在下方选择关卡开始。");
-      showPanel("start");
+      state.mode = "single";
+      ui.levelsTitle.textContent = "单人闯关";
+      renderLevelsForMode();
+      showPanel("levels");
     });
     ui.navCoop.addEventListener("click", () => {
       playClickSfx();
-      setModeHint("coop", "双人闯关：功能待接入，当前为占位入口。");
+      state.mode = "coop";
+      ui.levelsTitle.textContent = "双人闯关";
+      renderLevelsForMode();
+      showPanel("levels");
     });
     ui.navRace.addEventListener("click", () => {
       playClickSfx();
-      setModeHint("race", "双人竞速：功能待接入，当前为占位入口。");
+      state.mode = "race";
+      ui.levelsTitle.textContent = "双人竞速";
+      renderLevelsForMode();
+      showPanel("levels");
     });
-    ui.navSettings.addEventListener("click", () => showPanel("settings"));
+    ui.navSettings.addEventListener("click", () => {
+      playClickSfx();
+      showPanel("settings");
+    });
+    ui.btnBackFromLevels.addEventListener("click", () => {
+      playClickSfx();
+      showPanel("menu");
+    });
+    ui.btnBackFromSettings.addEventListener("click", () => {
+      playClickSfx();
+      showPanel("menu");
+    });
     ui.navLogout.addEventListener("click", async () => {
       playClickSfx();
       try {
@@ -439,13 +1041,12 @@
   async function bootstrapApp() {
     await refreshMe();
     showApp();
-    showPanel("start");
+    showPanel("menu");
     state.volume = Number(state.me.volume ?? state.volume);
     ui.volumeSlider.value = String(state.volume);
     ui.volumeValue.textContent = String(state.volume);
     applyVolumeToMedia();
-    setModeHint("single", "单人闯关：已接入关卡列表，可直接在下方选择关卡开始。");
-    await renderLevels();
+    renderLevelsForMode();
   }
 
   async function init() {
@@ -454,6 +1055,12 @@
     initMedia();
     document.addEventListener("pointerdown", unlockAudio);
     document.addEventListener("keydown", unlockAudio);
+    debugLog("run_ui_layout", "H1_bg_ratio", "game.js:init", "client_boot", {
+      viewportW: window.innerWidth,
+      viewportH: window.innerHeight,
+      dpr: window.devicePixelRatio || 1,
+      userAgent: navigator.userAgent,
+    });
 
     // If already logged in, go straight to app.
     try {
