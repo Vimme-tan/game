@@ -34,6 +34,8 @@
 
     gameHost: $("gameHost"),
     phaserMount: $("phaserMount"),
+    btnPauseLevel: $("btnPauseLevel"),
+    btnExitLevel: $("btnExitLevel"),
   };
 
   const api = {
@@ -114,7 +116,7 @@
   const assets = {
     menuBgm: "./assets/audio/bgm/menu_bgm.mp3",
     clickSfx: "./assets/audio/sfx/btn_click.wav",
-    level1Tmj: "./assets/maps/level1/level1.tmj",
+    level1Tmx: "./assets/maps/level1/level1.tmx",
   };
 
   const state = {
@@ -182,6 +184,8 @@
     ui.levelsTitle.style.display = isPlaying ? "none" : "";
     ui.gameHost.style.display = isPlaying ? "block" : "none";
     ui.panelLevels.classList.toggle("isPlaying", !!isPlaying);
+    const toolbar = ui.btnPauseLevel?.parentElement;
+    if (toolbar) toolbar.style.display = isPlaying ? "flex" : "none";
   }
 
   async function refreshMe() {
@@ -225,6 +229,32 @@
       state.phaser = null;
     }
     ui.phaserMount.innerHTML = "";
+    state.levelScene = null;
+    state.levelPaused = false;
+  }
+
+  function getActiveLevelScene() {
+    return state.levelScene || null;
+  }
+
+  function togglePauseLevel() {
+    const scene = getActiveLevelScene();
+    if (!scene) return;
+    scene.isPaused = !scene.isPaused;
+    state.levelPaused = scene.isPaused;
+    if (scene.physics && scene.physics.pause) {
+      if (scene.isPaused) scene.physics.pause();
+      else scene.physics.resume();
+    }
+  }
+
+  function exitLevelWithConfirm() {
+    if (!state.phaser) return;
+    const ok = confirm("确定退出当前关卡吗？退出后不会保存进度。");
+    if (!ok) return;
+    destroyPhaser();
+    setLevelPlayLayout(false);
+    showPanel("menu");
   }
 
   function applyVolumeToMedia() {
@@ -303,7 +333,7 @@
 
   async function startGame(levelId) {
     if (state.mode === "single" && levelId === 1) {
-      await startTilemapLevelOne(levelId);
+      await startTilemapLevelOneTmx(levelId);
       return;
     }
 
@@ -346,12 +376,12 @@
         }
 
         this.playerRect = this.add
-          .rectangle(this.tileX * tileSize + tileSize / 2, this.tileY * tileSize + tileSize / 2, tileSize * 0.8, tileSize * 0.8, 0x22c55e)
-          .setOrigin(0.5);
+            .rectangle(this.tileX * tileSize + tileSize / 2, this.tileY * tileSize + tileSize / 2, tileSize * 0.8, tileSize * 0.8, 0x22c55e)
+            .setOrigin(0.5);
 
         this.goalRect = this.add
-          .rectangle(this.goalX * tileSize + tileSize / 2, this.goalY * tileSize + tileSize / 2, tileSize * 0.8, tileSize * 0.8, 0xfbbf24)
-          .setOrigin(0.5);
+            .rectangle(this.goalX * tileSize + tileSize / 2, this.goalY * tileSize + tileSize / 2, tileSize * 0.8, tileSize * 0.8, 0xfbbf24)
+            .setOrigin(0.5);
 
         this.info = this.add.text(12, 10, "", { fontSize: "14px", color: "#e6edf3" }).setDepth(10);
         this.keys = this.input.keyboard.createCursorKeys();
@@ -410,7 +440,633 @@
     });
   }
 
+  async function startTilemapLevelOneTmx(levelId) {
+    state.currentLevelId = levelId;
+    setLevelPlayLayout(true);
+    destroyPhaser();
+
+    const tmxUrl = new URL(assets.level1Tmx, window.location.href).toString();
+    let tmxText;
+    try {
+      const r = await fetch(tmxUrl, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      tmxText = await r.text();
+      debugLog("run_ui_layout", "H6_tmx_load", "game.js:startTilemapLevelOneTmx", "tmx_loaded", { tmxUrl });
+    } catch (e) {
+      debugLog("run_ui_layout", "H6_tmx_load", "game.js:startTilemapLevelOneTmx", "tmx_load_error", {
+        tmxUrl,
+        error: e?.message || String(e),
+      });
+      alert(`第一关地图加载失败：${e?.message || String(e)}`);
+      return;
+    }
+
+    const tmxXml = new DOMParser().parseFromString(tmxText, "application/xml");
+    const mapEl = tmxXml.querySelector("map");
+    if (!mapEl) {
+      alert("TMX 解析失败：找不到 <map>。");
+      return;
+    }
+
+    const mapW = Number(mapEl.getAttribute("width") || 1);
+    const mapH = Number(mapEl.getAttribute("height") || 1);
+    const tileW = Number(mapEl.getAttribute("tilewidth") || 64);
+    const tileH = Number(mapEl.getAttribute("tileheight") || 64);
+    const worldW = mapW * tileW;
+    const worldH = mapH * tileH;
+
+    const tmjBase = new URL(tmxUrl); // keep var name similar for URL resolution
+
+    function parseBoolProp(propEl) {
+      if (!propEl) return undefined;
+      const type = String(propEl.getAttribute("type") || "").toLowerCase();
+      const value = String(propEl.getAttribute("value") || "").toLowerCase();
+      if (type === "bool") return value === "true" || value === "1";
+      // Fallback: treat "1" as true.
+      return value === "true" || value === "1";
+    }
+
+    function resolveTilesetImageUrl(imageSource, baseUrl) {
+      const candidates = [];
+      if (typeof imageSource !== "string" || !imageSource) return null;
+      if (imageSource.includes("sticker-knight/map/")) {
+        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
+      }
+      candidates.push(imageSource);
+      const baseName = imageSource.split("/").pop();
+      if (baseName) {
+        candidates.push(`map/${baseName}`);
+        candidates.push(`./map/${baseName}`);
+      }
+      for (const c of candidates) {
+        try {
+          return new URL(c, baseUrl).toString();
+        } catch {
+          // keep trying
+        }
+      }
+      return null;
+    }
+
+    async function fetchTsxText(tsxSource, baseUrl) {
+      const tsxUrl = new URL(tsxSource, baseUrl).toString();
+      const tsxBaseName = String(tsxSource || "").split("/").pop();
+      const fallbackTsxUrl = tsxBaseName ? new URL(`./${tsxBaseName}`, baseUrl).toString() : null;
+
+      const candidates = [];
+      if (tsxUrl) candidates.push(tsxUrl);
+      if (fallbackTsxUrl) candidates.push(fallbackTsxUrl);
+      // Try Windows-rename variant `dung .tsx`
+      if (tsxBaseName && tsxBaseName.toLowerCase().endsWith(".tsx")) {
+        const stem = tsxBaseName.slice(0, -4);
+        candidates.push(new URL(`./${stem} .tsx`, baseUrl).toString());
+      }
+
+      let lastErr = null;
+      for (const cand of candidates) {
+        try {
+          const r = await fetch(cand, { credentials: "same-origin" });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return await r.text();
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
+    }
+
+    function parseTsx(tsxText) {
+      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
+      const root = xml.querySelector("tileset");
+      if (!root) throw new Error("invalid tsx format");
+      const name = root.getAttribute("name") || "tileset";
+      const tsTileW = Number(root.getAttribute("tilewidth") || tileW);
+      const tsTileH = Number(root.getAttribute("tileheight") || tileH);
+      const tiles = {};
+
+      const tileEls = Array.from(xml.querySelectorAll("tile"));
+      for (const tileEl of tileEls) {
+        const id = Number(tileEl.getAttribute("id") || "0");
+        const imgEl = tileEl.querySelector("image");
+        const imageSource = imgEl?.getAttribute("source") || null;
+        const props = {};
+        const propEls = Array.from(tileEl.querySelectorAll("properties > property"));
+        for (const p of propEls) {
+          const propName = String(p.getAttribute("name") || "");
+          if (!propName) continue;
+          const b = parseBoolProp(p);
+          props[propName] = b;
+        }
+        tiles[id] = { id, imageSource, props };
+      }
+
+      return { name, tileW: tsTileW, tileH: tsTileH, tiles };
+    }
+
+    // 1) Parse layers (CSV data).
+    const layerEls = Array.from(mapEl.querySelectorAll("layer"));
+    const layers = layerEls.map((layerEl) => {
+      const name = layerEl.getAttribute("name") || "";
+      const dataEl = layerEl.querySelector("data");
+      const encoding = String(dataEl?.getAttribute("encoding") || "").toLowerCase();
+      const raw = (dataEl?.textContent || "").trim();
+      if (encoding !== "csv" && encoding !== "") {
+        // Keep minimal support.
+        throw new Error(`Unsupported TMX layer encoding: ${encoding || "(empty)"}`);
+      }
+      // TMX CSV 里会大量出现 `0`（表示空白 tile），不能用 `filter(Boolean)` 过滤掉，否则
+      // 会导致 data 索引错位、地图看起来像没加载出来。
+      const parts = raw.replace(/\s+/g, "").split(",");
+      const nums = parts.map((s) => (s === "" ? 0 : Number(s)));
+      // 防御：只取期望长度，避免 CSV 最末尾的多余空项造成越界/错位。
+      const expected = mapW * mapH;
+      return { name, data: nums.slice(0, expected) };
+    });
+
+    // 2) Parse players object layer (born/death/fallarea).
+    const objectGroups = Array.from(mapEl.querySelectorAll("objectgroup"));
+    const playersGroup = objectGroups.find((g) => String(g.getAttribute("name") || "").toLowerCase() === "players") || objectGroups[0] || null;
+    const playerObjects = playersGroup ? Array.from(playersGroup.querySelectorAll("object")) : [];
+
+    let bornObj = playerObjects.find((o) => {
+      const props = Array.from(o.querySelectorAll("properties > property"));
+      const birth = props.some((p) => {
+        const n = String(p.getAttribute("name") || "").toLowerCase();
+        return (n === "birth" || n === "born") && parseBoolProp(p);
+      });
+      return birth;
+    });
+    if (!bornObj) bornObj = { x: tileW * 2, y: tileH * 2, width: tileW, height: tileH };
+
+    const deathObjects = playerObjects.filter((o) => {
+      const props = Array.from(o.querySelectorAll("properties > property"));
+      return props.some((p) => String(p.getAttribute("name") || "").toLowerCase() === "death" && parseBoolProp(p));
+    });
+
+    const fallareaObjects = playerObjects.filter((o) => {
+      const props = Array.from(o.querySelectorAll("properties > property"));
+      return props.some((p) => String(p.getAttribute("name") || "").toLowerCase() === "fallarea" && parseBoolProp(p));
+    });
+
+    // 3) Load TSX for tilesets and build gid->tile resolver.
+    const tilesetEls = Array.from(mapEl.querySelectorAll("tileset"));
+    const tilesetInfos = [];
+    for (const tsEl of tilesetEls) {
+      const firstgid = Number(tsEl.getAttribute("firstgid") || "1");
+      const source = tsEl.getAttribute("source");
+      try {
+        const tsxText = await fetchTsxText(source, tmjBase);
+        const parsed = parseTsx(tsxText);
+        tilesetInfos.push({ firstgid, source, ...parsed });
+      } catch (e) {
+        debugLog("run_ui_layout", "H6_tmx_load", "game.js:startTilemapLevelOneTmx", "tsx_load_error", {
+          tsxSource: source,
+          error: e?.message || String(e),
+        });
+      }
+    }
+    if (!tilesetInfos.length) {
+      alert("第一关资源加载失败：TSX tileset 未能解析。请看控制台 debug 记录。");
+      return;
+    }
+    tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
+
+    function resolveTileFromGid(gid) {
+      const cleanGid = gid & 0x1fffffff;
+      if (!cleanGid) return null;
+      let chosen = null;
+      for (let i = 0; i < tilesetInfos.length; i++) {
+        const ts = tilesetInfos[i];
+        const nextFirst = i + 1 < tilesetInfos.length ? tilesetInfos[i + 1].firstgid : Infinity;
+        if (cleanGid >= ts.firstgid && cleanGid < nextFirst) {
+          chosen = ts;
+          break;
+        }
+      }
+      if (!chosen) return null;
+      const tileId = cleanGid - chosen.firstgid;
+      const tile = chosen.tiles[tileId];
+      if (!tile) return null;
+      return { ...tile, tileset: chosen, tileId };
+    }
+
+    // Collect images to preload (for rendering and player).
+    const imageToKey = new Map(); // url -> key
+    let heroImageUrl = null;
+    for (const ts of tilesetInfos) {
+      for (const tileIdStr of Object.keys(ts.tiles)) {
+        const tileId = Number(tileIdStr);
+        const tile = ts.tiles[tileId];
+        if (!tile?.imageSource) continue;
+        const url = resolveTilesetImageUrl(tile.imageSource, tmjBase);
+        if (!url) continue;
+        if (!imageToKey.has(url)) imageToKey.set(url, `tile_${ts.name}_${tileId}`);
+        if (String(tile.imageSource || "").toLowerCase().endsWith("hero.png")) heroImageUrl = url;
+      }
+    }
+    const heroKey = heroImageUrl ? imageToKey.get(heroImageUrl) : null;
+    if (!imageToKey.size) {
+      alert("第一关资源加载失败：未能解析到任何 tile 图片。请看控制台 debug 记录。");
+      return;
+    }
+
+    // Precompute tile-trigger rectangles.
+    const winRects = [];
+    const deathRects = [];
+    const fallareaRects = [];
+    const moveDBlocks = []; // {cx,cy,imgKey, body: created later, initialMoveD, canFall}
+    const solids = []; // {cx,cy}
+
+    const anyLayerHasTile = layers.some((l) => Array.isArray(l.data));
+    if (!anyLayerHasTile) {
+      alert("TMX 地图没有 tile 图层数据。");
+      return;
+    }
+
+    for (const layer of layers) {
+      const data = layer.data;
+      if (!Array.isArray(data) || data.length < mapW * mapH) continue;
+      for (let idx = 0; idx < mapW * mapH; idx++) {
+        const gid = data[idx];
+        const tile = gid ? resolveTileFromGid(gid) : null;
+        if (!tile) continue;
+        const col = idx % mapW;
+        const row = Math.floor(idx / mapW);
+        const cx = col * tileW + tileW / 2;
+        const cy = row * tileH + tileH / 2;
+
+        const p = tile.props || {};
+        const isSolid = p.solid === true;
+        const isWin = p.win === true;
+        const isDeath = p.death === true;
+        const isFallArea = p.fallarea === true;
+        const hasMoveD = Object.prototype.hasOwnProperty.call(p, "moveD");
+        const moveDInitial = hasMoveD ? p.moveD === true : false;
+
+        // `moveD` tiles are controlled by the falling system, so they should not
+        // also be treated as regular static solids.
+        if (isSolid && !hasMoveD) solids.push({ cx, cy, w: tileW, h: tileH });
+        if (isWin) winRects.push({ cx, cy, w: tileW, h: tileH });
+        if (isDeath) deathRects.push({ cx, cy, w: tileW, h: tileH });
+        if (isFallArea) fallareaRects.push({ cx, cy, w: tileW, h: tileH });
+
+        if (hasMoveD) {
+          const url = resolveTilesetImageUrl(tile.imageSource, tmjBase);
+          const imgKey = url ? imageToKey.get(url) : null;
+          moveDBlocks.push({
+            cx,
+            cy,
+            w: tileW,
+            h: tileH,
+            imgKey,
+            initialMoveD: moveDInitial,
+          });
+        }
+      }
+    }
+
+    // 4) Build Phaser scene (render all tiles + implement triggers).
+    const scene = {
+      preload: function () {
+        this._loadErrors = [];
+        this.load.on("loaderror", (file) => {
+          this._loadErrors.push({ key: file?.key, url: file?.url || file?.src, type: file?.type });
+          console.error("[phaser loaderror]", file?.key, file?.type, file?.url || file?.src);
+        });
+        for (const [url, key] of imageToKey.entries()) {
+          if (!url || !key) continue;
+          this.load.image(key, url);
+        }
+      },
+      create: function () {
+        if (this._loadErrors && this._loadErrors.length) {
+          const top = this._loadErrors.slice(0, 6);
+          console.error("[tmx tileset load errors]", top);
+          alert(`第一关部分图片加载失败（${this._loadErrors.length} 个）。请看控制台查看具体 URL。`);
+        }
+        state.levelScene = this;
+        this.isPaused = false;
+        this.finished = false;
+        this.dead = false;
+        this.lastRespawnAt = -1e9;
+        this.deathInvulnMs = 900;
+        this.moveDActivated = false;
+        this.moveDBodies = [];
+        this.trapSpikeImgs = [];
+
+        // Fit whole map into viewport with fixed camera.
+        this.worldW = worldW;
+        this.worldH = worldH;
+        this.cameras.main.setBounds(0, 0, worldW, worldH);
+
+        const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
+        const fitZoom = Number.isFinite(zoom) && zoom > 0 ? Math.min(1, zoom) : 1;
+        this.cameras.main.setZoom(fitZoom);
+        this.cameras.main.centerOn(worldW / 2, worldH / 2);
+
+        // Render tiles from all tile layers.
+        for (const layer of layers) {
+          if (!layer.data || !Array.isArray(layer.data)) continue;
+          const data = layer.data;
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const gid = data[idx];
+            const tile = gid ? resolveTileFromGid(gid) : null;
+            if (!tile) continue;
+            const col = idx % mapW;
+            const row = Math.floor(idx / mapW);
+            const url = resolveTilesetImageUrl(tile.imageSource, tmjBase);
+            const key = url ? imageToKey.get(url) : null;
+            if (!key) continue;
+            const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
+            const isWinTile = tile.props && tile.props.win === true;
+            const isTrapSpikeTile =
+              tile.props &&
+              tile.props.death === true &&
+              typeof tile.imageSource === "string" &&
+              tile.imageSource.toLowerCase().includes("trap.png");
+            if (isWinTile) {
+              // win tile: display at 2x
+              img.setDisplaySize(tileW * 2, tileH * 2);
+            } else {
+              img.setDisplaySize(tileW, tileH);
+            }
+
+            // For moveD tiles, we need to sync image with physics body later.
+            if (Object.prototype.hasOwnProperty.call(tile.props || {}, "moveD")) {
+              // moveD=false blocks are hidden until the trap triggers.
+              const initialMoveD = tile.props.moveD === true;
+              img.setAlpha(initialMoveD ? 1 : 0);
+              // Find corresponding moveDBlocks by coordinates (O(n) but map small).
+              const block = moveDBlocks.find((b) => b.cx === col * tileW + tileW / 2 && b.cy === row * tileH + tileH / 2);
+              if (block) block.img = img;
+            }
+
+            // Trap spikes (`trap.png`) are "death" tiles, but they should be hidden until moveD triggers.
+            if (isTrapSpikeTile) {
+              img.setDisplaySize(tileW * 2, tileH * 2); // 2x visual
+              img.setAlpha(0); // hidden at start
+              this.trapSpikeImgs.push(img);
+            }
+          }
+        }
+
+        // Physics setup.
+        this.physics.world.setBounds(0, 0, worldW, worldH);
+        this.physics.world.gravity.y = 980;
+
+        this.solids = this.physics.add.staticGroup();
+        for (const r of solids) {
+          const rect = this.add.rectangle(r.cx, r.cy, r.w, r.h, 0x000000, 0);
+          this.physics.add.existing(rect, true);
+          this.solids.add(rect);
+        }
+
+        // moveD blocks are initially immovable (behave like solids) then start falling.
+        this.moveDGroup = this.physics.add.group();
+        for (const b of moveDBlocks) {
+          const rect = this.add.rectangle(b.cx, b.cy, b.w, b.h, 0x000000, 0);
+          this.physics.add.existing(rect);
+          // Some tiles may already be flagged as moveD=true in TSX.
+          // Default expectation: initial moveD=false => immovable until fallarea triggers.
+          if (rect.body) {
+            rect.body.setImmovable(!b.initialMoveD);
+            rect.body.allowGravity = !!b.initialMoveD;
+            rect.body.setVelocity(0, 0);
+          }
+          this.moveDGroup.add(rect);
+          this.moveDBodies.push({ ...b, rect });
+          if (b.img) {
+            // If tile image was not assigned due to coords mismatch, still keep.
+            // Sync on every update.
+          }
+        }
+
+        // Spawn player.
+        const spawnX = Number(bornObj.getAttribute ? bornObj.getAttribute("x") : bornObj.x) + (Number(bornObj.getAttribute ? bornObj.getAttribute("width") : bornObj.width) || tileW) / 2;
+        const spawnYTop = Number(bornObj.getAttribute ? bornObj.getAttribute("y") : bornObj.y) || 0;
+        const spawnH = Number(bornObj.getAttribute ? bornObj.getAttribute("height") : bornObj.height) || tileH;
+        const spawnY = spawnYTop + spawnH; // bottom position because we set player origin to (0.5,1)
+        this.bornX = spawnX;
+        this.bornY = spawnY;
+
+        this.playerKey = heroKey;
+        if (this.playerKey) {
+          this.player = this.physics.add.sprite(spawnX, spawnY, this.playerKey);
+          this.player.setOrigin(0.5, 1);
+          // birth hero: display at 2x
+          this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+        } else {
+          // Fallback: invisible texture-less body, so gameplay still works.
+          this.player = this.add.rectangle(spawnX, spawnY, tileW * 0.5, tileH * 0.8, 0x22c55e, 1);
+          this.physics.add.existing(this.player);
+          this.player.setOrigin(0.5, 1);
+        }
+
+        this.player.body.setCollideWorldBounds(true);
+        // Hero is visually scaled 2x; keep physics body size in sync so feet don't sink into walls.
+        this.player.body.setSize(tileW * 0.45 * 2, tileH * 0.75 * 2, true);
+        this.player.body.setMaxVelocity(250, 900);
+        this.player.body.setDragX(900);
+
+        this.physics.add.collider(this.player, this.solids);
+        this.physics.add.collider(this.player, this.moveDGroup);
+
+        // Win / Death / Fallarea sensors from tiles.
+        const makeSensorGroup = () => this.physics.add.staticGroup();
+        this.winSensors = makeSensorGroup();
+        winRects.forEach((r) => {
+          const s = this.add.rectangle(r.cx, r.cy, r.w, r.h, 0x00ff00, 0);
+          this.physics.add.existing(s, true);
+          this.winSensors.add(s);
+        });
+
+        this.deathSensors = makeSensorGroup();
+        deathRects.forEach((r) => {
+          const s = this.add.rectangle(r.cx, r.cy, r.w, r.h, 0xff0000, 0);
+          this.physics.add.existing(s, true);
+          this.deathSensors.add(s);
+        });
+
+        this.fallSensors = makeSensorGroup();
+        fallareaRects.forEach((r) => {
+          const s = this.add.rectangle(r.cx, r.cy, r.w, r.h, 0x0000ff, 0);
+          this.physics.add.existing(s, true);
+          this.fallSensors.add(s);
+        });
+
+        // Also sensors from object layer: death / fallarea.
+        this.deathObjSensors = makeSensorGroup();
+        for (const o of deathObjects) {
+          const x = Number(o.getAttribute("x") || 0);
+          const y = Number(o.getAttribute("y") || 0);
+          const w = Number(o.getAttribute("width") || tileW);
+          const h = Number(o.getAttribute("height") || tileH);
+          const s = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0xff0000, 0);
+          this.physics.add.existing(s, true);
+          this.deathObjSensors.add(s);
+        }
+        this.fallObjSensors = makeSensorGroup();
+        for (const o of fallareaObjects) {
+          const x = Number(o.getAttribute("x") || 0);
+          const y = Number(o.getAttribute("y") || 0);
+          const w = Number(o.getAttribute("width") || tileW);
+          const h = Number(o.getAttribute("height") || tileH);
+          const s = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x0000ff, 0);
+          this.physics.add.existing(s, true);
+          this.fallObjSensors.add(s);
+        }
+
+        this.physics.add.overlap(this.player, this.winSensors, () => {
+          if (this.finished || this.dead) return;
+          this.finished = true;
+          alert("胜利！进入下一步（待完善计分/解锁）。");
+          togglePauseInScene(this, true);
+        });
+
+        this.physics.add.overlap(this.player, this.deathSensors, () => {
+          if (this.finished || this.dead) return;
+          if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
+          this.handlePlayerDeath();
+        });
+
+        this.physics.add.overlap(this.player, this.deathObjSensors, () => {
+          if (this.finished || this.dead) return;
+          if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
+          this.handlePlayerDeath();
+        });
+
+        this.physics.add.overlap(this.player, this.fallSensors, () => {
+          if (this.moveDActivated || this.finished) return;
+          this.activateMoveD();
+        });
+        this.physics.add.overlap(this.player, this.fallObjSensors, () => {
+          if (this.moveDActivated || this.finished) return;
+          this.activateMoveD();
+        });
+
+        // Helper methods on scene instance.
+        this.activateMoveD = () => {
+          if (this.moveDActivated) return;
+          this.moveDActivated = true;
+          for (const blk of this.moveDBodies) {
+            if (!blk || !blk.rect) continue;
+            const body = blk.rect.body;
+            if (!body) continue; // already destroyed / not physics-enabled
+            if (typeof body.setImmovable === "function") body.setImmovable(false);
+            body.allowGravity = true;
+            if (typeof body.setVelocity === "function") body.setVelocity(0, 0);
+            if (blk.img) blk.img.setAlpha(1);
+          }
+          // Show trap spikes when the falling system starts.
+          for (const img of this.trapSpikeImgs) img.setAlpha(1);
+        };
+
+        this.resetMoveDBodiesToInitial = () => {
+          this.moveDActivated = false;
+          for (const img of this.trapSpikeImgs) img.setAlpha(0);
+          for (const blk of this.moveDBodies) {
+            if (!blk || !blk.rect) continue;
+            if (blk.rect.body) {
+              blk.rect.body.enable = true;
+              if (typeof blk.rect.body.setImmovable === "function") blk.rect.body.setImmovable(!blk.initialMoveD);
+              blk.rect.body.allowGravity = !!blk.initialMoveD;
+              if (typeof blk.rect.body.setVelocity === "function") blk.rect.body.setVelocity(0, 0);
+            }
+            blk.rect.setPosition(blk.cx, blk.cy);
+            if (blk.img) blk.img.setAlpha(blk.initialMoveD ? 1 : 0);
+          }
+        };
+
+        this.handlePlayerDeath = () => {
+          if (this.dead || this.finished) return;
+          this.dead = true;
+          // Stop immediately to avoid repeated triggers.
+          if (this.player?.body) this.player.body.setVelocity(0, 0);
+          // Re-spawn after a short delay.
+          this.time.delayedCall(650, () => {
+            if (!this.scene) return;
+            this.dead = false;
+            this.lastRespawnAt = this.time.now;
+            // Reset traps too, so death returns you to the initial layout.
+            this.resetMoveDBodiesToInitial();
+            if (this.player?.body) {
+              this.player.body.enable = true;
+              this.player.setPosition(this.bornX, this.bornY);
+              this.player.body.setVelocity(0, 0);
+            } else if (this.player) {
+              this.player.setPosition(this.bornX, this.bornY);
+            }
+          });
+        };
+
+        function togglePauseInScene(scene, force) {
+          if (force) scene.isPaused = true;
+          else scene.isPaused = !scene.isPaused;
+          if (scene.physics && scene.physics.pause) {
+            scene.physics.pause();
+          }
+        }
+
+        this.controls = this.input.keyboard.createCursorKeys();
+        this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      },
+      update: function () {
+        if (!this.player || !this.player.body) return;
+        if (this.isPaused || this.finished || this.dead) return;
+
+        // moveD 只在触碰到 fallarea 后触发（上方触发区）。
+
+        // Sync moveD tile images with physics bodies (for falling visuals).
+        for (const blk of this.moveDBodies) {
+          const img = blk.img;
+          const rect = blk.rect;
+          if (!img || !rect || !rect.body) continue;
+          // rect.x/y are body center; img is bottom-left due to origin(0,1).
+          img.x = rect.x - tileW / 2;
+          img.y = rect.y + tileH / 2;
+          // Hide after leaving map (do not destroy, so we can reset on respawn).
+          if (rect.y - tileH / 2 > worldH + tileH) {
+            img.setAlpha(0);
+            if (rect.body) {
+              rect.body.enable = false;
+              rect.body.setVelocity(0, 0);
+            }
+          }
+        }
+
+        const speed = 220;
+        const left = this.controls.left.isDown;
+        const right = this.controls.right.isDown;
+        if (left) this.player.setVelocityX(-speed);
+        else if (right) this.player.setVelocityX(speed);
+        else this.player.setVelocityX(0);
+
+        const wantJump =
+            Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {
+          this.player.setVelocityY(-480);
+        }
+      },
+    };
+
+    const canvasW = Math.min(1400, Math.max(900, window.innerWidth - 80));
+    const canvasH = Math.min(900, Math.max(650, window.innerHeight - 200));
+
+    state.phaser = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: ui.phaserMount,
+      width: canvasW,
+      height: canvasH,
+      backgroundColor: "#0b1220",
+      physics: { default: "arcade", arcade: { debug: false } },
+      scene,
+    });
+  }
+
   async function startTilemapLevelOne(levelId) {
+    // Deprecated: kept for backward compatibility, but single player now uses TMX.
+    // Returning early prevents loading the (possibly deleted) TMJ resources.
+    return startTilemapLevelOneTmx(levelId);
     state.currentLevelId = levelId;
     setLevelPlayLayout(true);
     destroyPhaser();
@@ -626,9 +1282,9 @@
             if (!url) return null;
             const solidProp = tileNode.querySelector('properties > property[name="solid"]');
             const solid =
-              solidProp &&
-              String(solidProp.getAttribute("type") || "").toLowerCase() === "bool" &&
-              String(solidProp.getAttribute("value") || "").toLowerCase() === "true";
+                solidProp &&
+                String(solidProp.getAttribute("type") || "").toLowerCase() === "bool" &&
+                String(solidProp.getAttribute("value") || "").toLowerCase() === "true";
             return { id, source: src, imageUrl: url, width: w, height: h, solid, key: `ts_${i}_tile_${id}` };
           }).filter(Boolean);
 
@@ -664,8 +1320,8 @@
             tilecount,
             columns,
             ...(singleImageSource
-              ? { image: singleImageSource, imagewidth: singleImageWidth, imageheight: singleImageHeight }
-              : {}),
+                ? { image: singleImageSource, imagewidth: singleImageWidth, imageheight: singleImageHeight }
+                : {}),
           });
 
           debugLog("run_ui_layout", "H6_tmj_load", "game.js:startTilemapLevelOne", "tsx_loaded", {
@@ -793,7 +1449,7 @@
         // - Primary: tiles with TSX property `solid=true` (your tileset uses this).
         // - Optional: if TMJ has an object layer named `solid`, use it instead (hand-authored).
         const solidObjectLayer = (tmjData.layers || []).find(
-          (l) => l && l.type === "objectgroup" && String(l.name || "").toLowerCase() === "solid"
+            (l) => l && l.type === "objectgroup" && String(l.name || "").toLowerCase() === "solid"
         );
         this.solids = this.physics.add.staticGroup();
 
@@ -1061,6 +1717,9 @@
       dpr: window.devicePixelRatio || 1,
       userAgent: navigator.userAgent,
     });
+
+    if (ui.btnPauseLevel) ui.btnPauseLevel.addEventListener("click", togglePauseLevel);
+    if (ui.btnExitLevel) ui.btnExitLevel.addEventListener("click", exitLevelWithConfirm);
 
     // If already logged in, go straight to app.
     try {

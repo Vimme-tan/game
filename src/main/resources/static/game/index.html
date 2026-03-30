@@ -172,9 +172,29 @@
             padding: 12px;
             display:none;
         }
-        #phaserMount { display:flex; justify-content:center; align-items:center; min-height: 60vh; }
+        #phaserMount { display:flex; justify-content:center; align-items:center; min-height: 70vh; }
         #panelLevels.isPlaying #gameHost { display:block; margin-top: 18px; }
         #panelLevels.isPlaying #phaserMount { min-height: calc(100vh - 140px); }
+        #panelLevels.isPlaying #phaserMount { align-items:flex-start; }
+        #panelLevels { position: relative; }
+        #levelToolbar{
+            position:absolute;
+            top: 10px;
+            left:0;
+            right:0;
+            display:flex;
+            justify-content:center;
+            gap: 12px;
+            pointer-events:none;
+        }
+        #levelToolbar > button{
+            width: 52px;
+            height: 52px;
+            pointer-events:auto;
+            font-size: 22px;
+            padding: 0;
+        }
+        #panelLevels.isPlaying #levelToolbar{ display:flex; }
         canvas { display:block; margin: 0 auto; }
     </style>
 </head>
@@ -229,6 +249,10 @@
 
     <section id="panelLevels" class="panelShell">
         <button id="btnBackFromLevels" class="backBtn" type="button" title="返回">←</button>
+        <div id="levelToolbar" aria-label="关卡控制按钮" style="display:none;">
+            <button id="btnPauseLevel" class="menuBtn" type="button" title="暂停">||</button>
+            <button id="btnExitLevel" class="menuBtn exit" type="button" title="退出">×</button>
+        </div>
         <h2 id="levelsTitle" class="panelTitle">关卡选择</h2>
         <div id="levelsGrid" class="levelsGrid"></div>
         <div id="gameHost">
