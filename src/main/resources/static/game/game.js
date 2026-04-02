@@ -116,7 +116,12 @@
   const assets = {
     menuBgm: "./assets/audio/bgm/menu_bgm.mp3",
     clickSfx: "./assets/audio/sfx/btn_click.wav",
-    level1Tmx: "./assets/maps/level1/level1.tmx",
+    level1Tmx: "./assets/maps/singleplayer/level1.tmx",
+    level2Json: "./assets/maps/singleplayer/level2.json",
+    level3Json: "./assets/maps/singleplayer/level3.json",
+    characterFront: "./assets/character/front.png",
+    characterLeft: "./assets/character/left.png",
+    characterRight: "./assets/character/right.png",
   };
 
   const state = {
@@ -199,7 +204,7 @@
     const firstPlayable = 1;
     for (let i = 1; i <= totalLevels; i++) {
       const btn = document.createElement("button");
-      const unlocked = i === firstPlayable;
+      const unlocked = i === 1 || i === 2 || i === 3;
       btn.className = "levelCell" + (unlocked ? "" : " locked");
       btn.type = "button";
       btn.textContent = `第 ${i} 关`;
@@ -212,11 +217,7 @@
             mode: state.mode,
             levelId: i,
           });
-          if (state.mode === "single" && i === 1) {
-            await startGame(1);
-            return;
-          }
-          alert("待开发中");
+          await startGame(i);
         });
       }
       ui.levelsGrid.appendChild(btn);
@@ -333,7 +334,27 @@
 
   async function startGame(levelId) {
     if (state.mode === "single" && levelId === 1) {
-      await startTilemapLevelOneTmx(levelId);
+      if (window.SinglePlayerLevels?.startLevel1) {
+        await window.SinglePlayerLevels.startLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe }, levelId);
+      } else {
+        alert("第一关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "single" && levelId === 2) {
+      if (window.SinglePlayerLevels?.startLevel2) {
+        await window.SinglePlayerLevels.startLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe }, levelId);
+      } else {
+        alert("第二关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "single" && levelId === 3) {
+      if (window.SinglePlayerLevels?.startLevel3) {
+        await window.SinglePlayerLevels.startLevel3({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe }, levelId);
+      } else {
+        alert("第三关脚本未加载。");
+      }
       return;
     }
 
@@ -490,11 +511,16 @@
       const candidates = [];
       if (typeof imageSource !== "string" || !imageSource) return null;
       if (imageSource.includes("sticker-knight/map/")) {
+        // After moving map/ to `assets/maps/map/`, prefer parent-relative path from `singleplayer/`.
+        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
+        // Keep legacy fallback (when map/ is colocated).
         candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
       }
       candidates.push(imageSource);
       const baseName = imageSource.split("/").pop();
       if (baseName) {
+        // Prefer the new location first.
+        candidates.push(`../map/${baseName}`);
         candidates.push(`map/${baseName}`);
         candidates.push(`./map/${baseName}`);
       }
@@ -701,7 +727,8 @@
         const isDeath = p.death === true;
         const isFallArea = p.fallarea === true;
         const hasMoveD = Object.prototype.hasOwnProperty.call(p, "moveD");
-        const moveDInitial = hasMoveD ? p.moveD === true : false;
+        // Requirement: moveD starts at 0 (false) for all trap blocks, regardless of TSX value.
+        const moveDInitial = false;
 
         // `moveD` tiles are controlled by the falling system, so they should not
         // also be treated as regular static solids.
@@ -733,6 +760,12 @@
           this._loadErrors.push({ key: file?.key, url: file?.url || file?.src, type: file?.type });
           console.error("[phaser loaderror]", file?.key, file?.type, file?.url || file?.src);
         });
+
+        // Character sprites (override tileset hero.png)
+        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
+        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
+        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+
         for (const [url, key] of imageToKey.entries()) {
           if (!url || !key) continue;
           this.load.image(key, url);
@@ -793,9 +826,8 @@
 
             // For moveD tiles, we need to sync image with physics body later.
             if (Object.prototype.hasOwnProperty.call(tile.props || {}, "moveD")) {
-              // moveD=false blocks are hidden until the trap triggers.
-              const initialMoveD = tile.props.moveD === true;
-              img.setAlpha(initialMoveD ? 1 : 0);
+              // moveD starts hidden (0) until trap triggers.
+              img.setAlpha(0);
               // Find corresponding moveDBlocks by coordinates (O(n) but map small).
               const block = moveDBlocks.find((b) => b.cx === col * tileW + tileW / 2 && b.cy === row * tileH + tileH / 2);
               if (block) block.img = img;
@@ -803,7 +835,9 @@
 
             // Trap spikes (`trap.png`) are "death" tiles, but they should be hidden until moveD triggers.
             if (isTrapSpikeTile) {
-              img.setDisplaySize(tileW * 2, tileH * 2); // 2x visual
+              // 2x and extend to the right to cover the pit.
+              // Origin is (0,1), so increasing width extends to the right.
+              img.setDisplaySize(tileW * 2, tileH * 2);
               img.setAlpha(0); // hidden at start
               this.trapSpikeImgs.push(img);
             }
@@ -844,27 +878,29 @@
         // Spawn player.
         const spawnX = Number(bornObj.getAttribute ? bornObj.getAttribute("x") : bornObj.x) + (Number(bornObj.getAttribute ? bornObj.getAttribute("width") : bornObj.width) || tileW) / 2;
         const spawnYTop = Number(bornObj.getAttribute ? bornObj.getAttribute("y") : bornObj.y) || 0;
-        const spawnH = Number(bornObj.getAttribute ? bornObj.getAttribute("height") : bornObj.height) || tileH;
-        const spawnY = spawnYTop + spawnH; // bottom position because we set player origin to (0.5,1)
+        // Spawn using the top of the born marker, then let gravity settle onto solids.
+        // (Using y+height often spawns inside ground if the born object overlaps tiles.)
+        const spawnY = spawnYTop;
         this.bornX = spawnX;
         this.bornY = spawnY;
 
-        this.playerKey = heroKey;
-        if (this.playerKey) {
-          this.player = this.physics.add.sprite(spawnX, spawnY, this.playerKey);
+        // Use the new character sprites
+        this.player = this.physics.add.sprite(spawnX, spawnY, "char_front");
+        if (this.player) {
           this.player.setOrigin(0.5, 1);
           // birth hero: display at 2x
-          this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
-        } else {
-          // Fallback: invisible texture-less body, so gameplay still works.
-          this.player = this.add.rectangle(spawnX, spawnY, tileW * 0.5, tileH * 0.8, 0x22c55e, 1);
-          this.physics.add.existing(this.player);
-          this.player.setOrigin(0.5, 1);
+          const dispW = tileW * 0.6 * 2;
+          const dispH = tileH * 0.9 * 2;
+          this.player.setDisplaySize(dispW, dispH);
         }
 
         this.player.body.setCollideWorldBounds(true);
-        // Hero is visually scaled 2x; keep physics body size in sync so feet don't sink into walls.
-        this.player.body.setSize(tileW * 0.45 * 2, tileH * 0.75 * 2, true);
+        // Make the physics body match the full visible hero so feet stand on solids.
+        // With origin (0.5,1), offset (0,0) aligns body to sprite top-left.
+        if (this.player.displayWidth && this.player.displayHeight) {
+          this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
+          this.player.body.setOffset(0, 0);
+        }
         this.player.body.setMaxVelocity(250, 900);
         this.player.body.setDragX(900);
 
@@ -1041,6 +1077,11 @@
         else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
 
+        // Swap character sprite by movement
+        if (left) this.player.setTexture("char_left");
+        else if (right) this.player.setTexture("char_right");
+        else this.player.setTexture("char_front");
+
         const wantJump =
             Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {
@@ -1057,6 +1098,322 @@
       parent: ui.phaserMount,
       width: canvasW,
       height: canvasH,
+      backgroundColor: "#0b1220",
+      physics: { default: "arcade", arcade: { debug: false } },
+      scene,
+    });
+  }
+
+  async function startTilemapLevelTwoJson(levelId) {
+    state.currentLevelId = levelId;
+    setLevelPlayLayout(true);
+    destroyPhaser();
+
+    if (window.location.protocol === "file:") {
+      alert("当前是 file:// 方式打开页面，浏览器会阻止加载本地 JSON 资源。\n请用 http:// 方式运行一个本地静态服务器后再测试（例如 localhost）。");
+      return;
+    }
+
+    const mapUrl = new URL(assets.level2Json, window.location.href).toString();
+    let mapData;
+    try {
+      const r = await fetch(mapUrl, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      mapData = await r.json();
+    } catch (e) {
+      alert(`第二关地图加载失败：${e?.message || String(e)}`);
+      return;
+    }
+
+    const mapW = Number(mapData.width || 1);
+    const mapH = Number(mapData.height || 1);
+    const tileW = Number(mapData.tilewidth || 64);
+    const tileH = Number(mapData.tileheight || 64);
+    const worldW = mapW * tileW;
+    const worldH = mapH * tileH;
+
+    const mapBase = new URL(mapUrl);
+
+    function parseBoolPropFromTsx(propEl) {
+      if (!propEl) return undefined;
+      const type = String(propEl.getAttribute("type") || "").toLowerCase();
+      const value = String(propEl.getAttribute("value") || "").toLowerCase();
+      if (type === "bool") return value === "true" || value === "1";
+      return value === "true" || value === "1";
+    }
+
+    function resolveTilesetImageUrl(imageSource, baseUrl) {
+      const candidates = [];
+      if (typeof imageSource !== "string" || !imageSource) return null;
+      if (imageSource.includes("sticker-knight/map/")) {
+        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
+        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
+      }
+      candidates.push(imageSource);
+      const baseName = imageSource.split("/").pop();
+      if (baseName) {
+        candidates.push(`../map/${baseName}`);
+        candidates.push(`map/${baseName}`);
+        candidates.push(`./map/${baseName}`);
+      }
+      for (const c of candidates) {
+        try {
+          return new URL(c, baseUrl).toString();
+        } catch {
+          // keep trying
+        }
+      }
+      return null;
+    }
+
+    async function fetchTsxText(tsxSource, baseUrl) {
+      const tsxUrl = new URL(tsxSource, baseUrl).toString();
+      const r = await fetch(tsxUrl, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }
+
+    function parseTsx(tsxText) {
+      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
+      const root = xml.querySelector("tileset");
+      if (!root) throw new Error("invalid tsx format");
+      const name = root.getAttribute("name") || "tileset";
+      const tiles = {};
+      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
+        const id = Number(tileEl.getAttribute("id") || "0");
+        const imgEl = tileEl.querySelector("image");
+        const imageSource = imgEl?.getAttribute("source") || null;
+        const props = {};
+        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
+          const propName = String(p.getAttribute("name") || "");
+          if (!propName) continue;
+          props[propName] = parseBoolPropFromTsx(p);
+        }
+        tiles[id] = { id, imageSource, props };
+      }
+      return { name, tiles };
+    }
+
+    // Tilesets (external TSX)
+    const tilesetInfos = [];
+    for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
+      const firstgid = Number(ts.firstgid || 1);
+      const source = ts.source;
+      if (!source) continue;
+      const tsxText = await fetchTsxText(source, mapBase);
+      const parsed = parseTsx(tsxText);
+      tilesetInfos.push({ firstgid, source, ...parsed });
+    }
+    tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
+    if (!tilesetInfos.length) {
+      alert("第二关资源加载失败：TSX tileset 未能解析。");
+      return;
+    }
+
+    function resolveTileFromGid(gid) {
+      const cleanGid = gid & 0x1fffffff;
+      if (!cleanGid) return null;
+      let chosen = null;
+      for (let i = 0; i < tilesetInfos.length; i++) {
+        const ts = tilesetInfos[i];
+        const nextFirst = i + 1 < tilesetInfos.length ? tilesetInfos[i + 1].firstgid : Infinity;
+        if (cleanGid >= ts.firstgid && cleanGid < nextFirst) {
+          chosen = ts;
+          break;
+        }
+      }
+      if (!chosen) return null;
+      const tileId = cleanGid - chosen.firstgid;
+      const tile = chosen.tiles[tileId];
+      if (!tile) return null;
+      return { ...tile, tileset: chosen, tileId };
+    }
+
+    // Layers
+    const tileLayers = (Array.isArray(mapData.layers) ? mapData.layers : []).filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
+    const objectLayers = (Array.isArray(mapData.layers) ? mapData.layers : []).filter((l) => l && l.type === "objectgroup");
+
+    // born object
+    const bornObj =
+      objectLayers
+        .flatMap((l) => Array.isArray(l.objects) ? l.objects : [])
+        .find((o) => Array.isArray(o.properties) && o.properties.some((p) => String(p.name || "").toLowerCase() === "born" && p.value === true)) ||
+      null;
+
+    const spawnX = bornObj ? bornObj.x + (bornObj.width || tileW) / 2 : tileW * 2;
+    const spawnY = bornObj ? bornObj.y : tileH * 2;
+
+    // Preload all tile images
+    const imageToKey = new Map();
+    for (const ts of tilesetInfos) {
+      for (const idStr of Object.keys(ts.tiles)) {
+        const id = Number(idStr);
+        const t = ts.tiles[id];
+        if (!t?.imageSource) continue;
+        const url = resolveTilesetImageUrl(t.imageSource, mapBase);
+        if (!url) continue;
+        if (!imageToKey.has(url)) imageToKey.set(url, `tile_${ts.name}_${id}`);
+      }
+    }
+
+    // Build solids + moving spikes placement from tiles
+    const solids = [];
+    const spikeSpawns = []; // {x,y,key}
+    for (const layer of tileLayers) {
+      const data = layer.data;
+      for (let idx = 0; idx < mapW * mapH; idx++) {
+        const gid = data[idx];
+        const tile = gid ? resolveTileFromGid(gid) : null;
+        if (!tile) continue;
+        const col = idx % mapW;
+        const row = Math.floor(idx / mapW);
+        const cx = col * tileW + tileW / 2;
+        const cy = row * tileH + tileH / 2;
+        const p = tile.props || {};
+        if (p.solid === true) solids.push({ cx, cy, w: tileW, h: tileH });
+        const isTrap = p.death === true && typeof tile.imageSource === "string" && tile.imageSource.toLowerCase().includes("trap.png");
+        if (isTrap) {
+          const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+          const key = url ? imageToKey.get(url) : null;
+          if (key) spikeSpawns.push({ x: col * tileW, y: (row + 1) * tileH, key }); // origin (0,1)
+        }
+      }
+    }
+
+    const playerSpeed = 220;
+    const spikeSpeed = playerSpeed * 0.7;
+
+    const scene = {
+      preload: function () {
+        this._loadErrors = [];
+        this.load.on("loaderror", (file) => {
+          console.error("[phaser loaderror]", file?.key, file?.type, file?.url || file?.src);
+        });
+        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
+        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
+        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
+      },
+      create: function () {
+        state.levelScene = this;
+        this.isPaused = false;
+
+        this.physics.world.setBounds(0, 0, worldW, worldH);
+        this.physics.world.gravity.y = 980;
+
+        // Fixed camera show whole map
+        this.cameras.main.setBounds(0, 0, worldW, worldH);
+        const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
+        this.cameras.main.setZoom(Math.min(1, zoom));
+        this.cameras.main.centerOn(worldW / 2, worldH / 2);
+
+        // Render tiles (skip trap tiles; they will be dynamic spikes)
+        for (const layer of tileLayers) {
+          const data = layer.data;
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const gid = data[idx];
+            const tile = gid ? resolveTileFromGid(gid) : null;
+            if (!tile) continue;
+            const p = tile.props || {};
+            const isTrap = p.death === true && typeof tile.imageSource === "string" && tile.imageSource.toLowerCase().includes("trap.png");
+            if (isTrap) continue;
+            const col = idx % mapW;
+            const row = Math.floor(idx / mapW);
+            const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+            const key = url ? imageToKey.get(url) : null;
+            if (!key) continue;
+            const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
+            img.setDisplaySize(tileW, tileH);
+          }
+        }
+
+        // Solids
+        this.solids = this.physics.add.staticGroup();
+        for (const r of solids) {
+          const rect = this.add.rectangle(r.cx, r.cy, r.w, r.h, 0x000000, 0);
+          this.physics.add.existing(rect, true);
+          this.solids.add(rect);
+        }
+
+        // Player
+        this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
+        this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+        this.player.body.setCollideWorldBounds(true);
+        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
+        this.player.body.setOffset(0, 0);
+        this.player.body.setMaxVelocity(250, 900);
+        this.player.body.setDragX(900);
+        this.physics.add.collider(this.player, this.solids);
+
+        // Moving spikes
+        this.spikes = this.physics.add.group();
+        for (const s of spikeSpawns) {
+          const spike = this.physics.add.sprite(s.x, s.y, s.key).setOrigin(0, 1);
+          spike.setDisplaySize(tileW * 2, tileH * 2);
+          spike.body.allowGravity = false;
+          spike.body.setVelocityX(-spikeSpeed); // start left
+          spike._dir = -1;
+          this.spikes.add(spike);
+        }
+
+        // Bounce on solid
+        this.physics.add.collider(this.spikes, this.solids, (spike) => {
+          if (!spike?.body) return;
+          const dir = spike.body.velocity.x >= 0 ? 1 : -1;
+          const newDir = -dir;
+          spike._dir = newDir;
+          spike.body.setVelocityX(newDir * spikeSpeed);
+        });
+
+        // Death on touch
+        this.physics.add.overlap(this.player, this.spikes, () => {
+          alert("死亡：碰到刺（第二关）。");
+        });
+
+        this.controls = this.input.keyboard.createCursorKeys();
+        this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+      },
+      update: function () {
+        if (!this.player?.body) return;
+        if (this.isPaused) return;
+
+        // Player movement + sprite swap
+        const left = this.controls.left.isDown;
+        const right = this.controls.right.isDown;
+        if (left) this.player.setVelocityX(-playerSpeed);
+        else if (right) this.player.setVelocityX(playerSpeed);
+        else this.player.setVelocityX(0);
+        if (left) this.player.setTexture("char_left");
+        else if (right) this.player.setTexture("char_right");
+        else this.player.setTexture("char_front");
+
+        const wantJump = Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {
+          this.player.setVelocityY(-480);
+        }
+
+        // Proximity: reverse spike direction immediately when player approaches
+        const threshold = tileW * 2.2;
+        const th2 = threshold * threshold;
+        const px = this.player.x;
+        const py = this.player.y;
+        for (const spike of this.spikes.getChildren()) {
+          if (!spike?.body) continue;
+          const dx = px - spike.x;
+          const dy = py - spike.y;
+          if (dx * dx + dy * dy <= th2) {
+            spike._dir = -(spike._dir || -1);
+            spike.body.setVelocityX(spike._dir * spikeSpeed);
+          }
+        }
+      },
+    };
+
+    state.phaser = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: ui.phaserMount,
+      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
+      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
       backgroundColor: "#0b1220",
       physics: { default: "arcade", arcade: { debug: false } },
       scene,

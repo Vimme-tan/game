@@ -24,4 +24,11 @@
  <tile id="4">
   <image source="sticker-knight/map/grey.png" width="64" height="64"/>
  </tile>
+<tile id="13">
+ <properties>
+  <property name="moveD" type="bool" value="false"/>
+  <property name="solid" type="bool" value="true"/>
+ </properties>
+ <image source="sticker-knight/map/grey.png" width="64" height="64"/>
+</tile>
 </tileset>
