@@ -37,17 +37,29 @@
     function resolveTilesetImageUrl(imageSource, baseUrl) {
       const candidates = [];
       if (typeof imageSource !== "string" || !imageSource) return null;
-      if (imageSource.includes("sticker-knight/map/")) {
-        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
-        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
-      }
-      candidates.push(imageSource);
+
       const baseName = imageSource.split("/").pop();
+      const hasSticker = imageSource.includes("sticker-knight/map/");
+      if (hasSticker && baseName) {
+        // Maps under `singleplayer/level3/` need `../../map/`.
+        candidates.push(`../../map/${baseName}`);
+        candidates.push(`../map/${baseName}`);
+        candidates.push(`map/${baseName}`);
+      }
+
+      // Normalize legacy exported path like "../tiled/examples/sticker-knight/map/x.png"
+      // to the runtime shared map directory.
+      if (baseName) candidates.push(`../../map/${baseName}`);
+
+      // Keep original + relative fallbacks
+      candidates.push(imageSource);
       if (baseName) {
+        candidates.push(`../../map/${baseName}`);
         candidates.push(`../map/${baseName}`);
         candidates.push(`map/${baseName}`);
         candidates.push(`./map/${baseName}`);
       }
+
       for (const c of candidates) {
         try {
           return new URL(c, baseUrl).toString();
@@ -146,6 +158,7 @@
     const deathRects = [];
     const winRects = [];
     const moveDBlocks = [];
+    const moveDTriggers = [];
     for (const layer of tileLayers) {
       const data = layer.data;
       for (let idx = 0; idx < mapW * mapH; idx++) {
@@ -164,11 +177,14 @@
         if (p.win === true) winRects.push({ cx, cy, w: tileW, h: tileH });
         if (hasMoveD) {
           moveDBlocks.push({ cx, cy, w: tileW, h: tileH, initialMoveD: moveDInitial });
+          if (Number(layer.id) === 4 || String(layer.name || "").includes("3")) {
+            moveDTriggers.push({ cx, cy, w: tileW, h: tileH });
+          }
         }
       }
     }
 
-    const playerSpeed = 220;
+    const playerSpeed = 550;
 
     const scene = {
       preload: function () {
@@ -187,6 +203,7 @@
         this.moveDBodies = [];
         this.layer3Imgs = [];
         this.trapSpikeImgs = [];
+        this.trapArmAt = this.time.now + 500;
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.physics.world.gravity.y = 980;
 
@@ -284,7 +301,19 @@
         this.physics.add.overlap(this.player, this.winSensors, () => {
           if (this.finished) return;
           this.finished = true;
-          alert("胜利！（第三关）");
+          if (typeof ctx.onLevelWin === "function") ctx.onLevelWin(levelId);
+        });
+
+        this.triggerSensors = this.physics.add.staticGroup();
+        for (const t of moveDTriggers) {
+          const s = this.add.rectangle(t.cx, t.cy, t.w, t.h, 0x0000ff, 0);
+          this.physics.add.existing(s, true);
+          this.triggerSensors.add(s);
+        }
+        this.physics.add.overlap(this.player, this.triggerSensors, () => {
+          if (this.finished) return;
+          if (this.time.now < this.trapArmAt) return;
+          this.triggerTrapEvent();
         });
 
         this.triggerTrapEvent = () => {
@@ -308,20 +337,13 @@
         this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
       },
       update: function () {
-        if (!this.finished && !this.moveDActivated && this.trapSpikeImgs.length) {
-          const px = this.player.x;
-          const py = this.player.y;
-          const th2 = (tileW * 1.4) * (tileW * 1.4);
-          for (const img of this.trapSpikeImgs) {
-            const sx = img.x + img.displayWidth * 0.5;
-            const sy = img.y - img.displayHeight * 0.5;
-            const dx = px - sx;
-            const dy = py - sy;
-            if (dx * dx + dy * dy <= th2) {
-              this.triggerTrapEvent();
-              break;
-            }
-          }
+        // Trigger is now only via dedicated moveD trigger tiles.
+
+        // Fall out of map => death and respawn at born.
+        if (this.player?.y > worldH + tileH) {
+          this.player.body.setVelocity(0, 0);
+          this.player.setPosition(this.bornX, this.bornY);
+          this.lastRespawnAt = this.time.now;
         }
 
         const left = this.controls.left.isDown;
@@ -335,7 +357,7 @@
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
         // Jump power x1.5
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-720);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-1200);
       },
     };
 

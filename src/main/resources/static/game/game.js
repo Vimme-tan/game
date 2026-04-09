@@ -36,6 +36,26 @@
     phaserMount: $("phaserMount"),
     btnPauseLevel: $("btnPauseLevel"),
     btnExitLevel: $("btnExitLevel"),
+
+    winDialogBackdrop: $("winDialogBackdrop"),
+    winDialogTitle: $("winDialogTitle"),
+    winDialogMsg: $("winDialogMsg"),
+    btnWinNext: $("btnWinNext"),
+    btnWinExit: $("btnWinExit"),
+
+    kbP1Left: $("kbP1Left"),
+    kbP1Right: $("kbP1Right"),
+    kbP1Jump: $("kbP1Jump"),
+    kbP2Left: $("kbP2Left"),
+    kbP2Right: $("kbP2Right"),
+    kbP2Jump: $("kbP2Jump"),
+    btnBindP1Left: $("btnBindP1Left"),
+    btnBindP1Right: $("btnBindP1Right"),
+    btnBindP1Jump: $("btnBindP1Jump"),
+    btnBindP2Left: $("btnBindP2Left"),
+    btnBindP2Right: $("btnBindP2Right"),
+    btnBindP2Jump: $("btnBindP2Jump"),
+    btnResetKeybinds: $("btnResetKeybinds"),
   };
 
   const api = {
@@ -53,9 +73,14 @@
         }
         if (u === "/api/settings/volume") return null;
         if (u === "/api/progress/complete") return null;
+        if (u === "/api/progress/levels") return { unlocked: [1, 2, 3, 4, 5] };
         if (u === "/api/auth/logout") return null;
         if (u === "/api/auth/login") return { ok: true };
         if (u === "/api/auth/register") return { ok: true };
+        if (u.startsWith("/api/levels/")) {
+          const id = Number(u.split("/").pop() || 1) || 1;
+          return { levelId: id, width: 30, height: 18, spawnX: 2, spawnY: 2, goalX: 26, goalY: 14 };
+        }
         if (u.startsWith("/api/debug/log")) return null;
         // For levelConfig and other endpoints, you can extend mock later.
         return undefined;
@@ -118,7 +143,10 @@
     clickSfx: "./assets/audio/sfx/btn_click.wav",
     level1Tmx: "./assets/maps/singleplayer/level1.tmx",
     level2Json: "./assets/maps/singleplayer/level2.json",
-    level3Json: "./assets/maps/singleplayer/level3.json",
+    level3Json: "./assets/maps/singleplayer/level3/level3.json",
+    level4Json: "./assets/maps/singleplayer/level4.json",
+    level5Json: "./assets/maps/singleplayer/level5/sinfive.json",
+    raceLevel1Json: "./assets/maps/doubleplayer/level1/douone.json",
     characterFront: "./assets/character/front.png",
     characterLeft: "./assets/character/left.png",
     characterRight: "./assets/character/right.png",
@@ -136,7 +164,70 @@
     hasBgmAudio: false,
     hasClickAudio: false,
     audioUnlocked: false,
+    _winOnNext: null,
+    _winOnExit: null,
+    keybinds: null,
   };
+
+  const KEYBINDS_STORAGE_KEY = "pt_keybinds_v1";
+  const DEFAULT_KEYBINDS = {
+    p1: { left: "ArrowLeft", right: "ArrowRight", jump: "Space" },
+    p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
+  };
+
+  function loadKeybinds() {
+    try {
+      const raw = localStorage.getItem(KEYBINDS_STORAGE_KEY);
+      if (!raw) return structuredClone(DEFAULT_KEYBINDS);
+      const obj = JSON.parse(raw);
+      const pick = (v, fallback) => (typeof v === "string" && v.length ? v : fallback);
+      return {
+        p1: {
+          left: pick(obj?.p1?.left, DEFAULT_KEYBINDS.p1.left),
+          right: pick(obj?.p1?.right, DEFAULT_KEYBINDS.p1.right),
+          jump: pick(obj?.p1?.jump, DEFAULT_KEYBINDS.p1.jump),
+        },
+        p2: {
+          left: pick(obj?.p2?.left, DEFAULT_KEYBINDS.p2.left),
+          right: pick(obj?.p2?.right, DEFAULT_KEYBINDS.p2.right),
+          jump: pick(obj?.p2?.jump, DEFAULT_KEYBINDS.p2.jump),
+        },
+      };
+    } catch {
+      return structuredClone(DEFAULT_KEYBINDS);
+    }
+  }
+
+  function saveKeybinds(keybinds) {
+    try {
+      localStorage.setItem(KEYBINDS_STORAGE_KEY, JSON.stringify(keybinds));
+    } catch {}
+  }
+
+  function syncKeybindsUI() {
+    if (!state.keybinds) state.keybinds = loadKeybinds();
+    if (ui.kbP1Left) ui.kbP1Left.value = state.keybinds.p1.left;
+    if (ui.kbP1Right) ui.kbP1Right.value = state.keybinds.p1.right;
+    if (ui.kbP1Jump) ui.kbP1Jump.value = state.keybinds.p1.jump;
+    if (ui.kbP2Left) ui.kbP2Left.value = state.keybinds.p2.left;
+    if (ui.kbP2Right) ui.kbP2Right.value = state.keybinds.p2.right;
+    if (ui.kbP2Jump) ui.kbP2Jump.value = state.keybinds.p2.jump;
+  }
+
+  function beginBindKey(label, apply) {
+    const tips = `按下要绑定的键：${label}\n（按 ESC 取消）`;
+    alert(tips);
+    const onKey = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      document.removeEventListener("keydown", onKey, true);
+      if (e.code === "Escape") return;
+      if (typeof apply === "function") apply(e.code);
+      syncKeybindsUI();
+      saveKeybinds(state.keybinds);
+    };
+    document.addEventListener("keydown", onKey, true);
+  }
 
   function debugLog(runId, hypothesisId, location, message, data) {
     // #region agent log
@@ -204,7 +295,10 @@
     const firstPlayable = 1;
     for (let i = 1; i <= totalLevels; i++) {
       const btn = document.createElement("button");
-      const unlocked = i === 1 || i === 2 || i === 3;
+      const unlocked =
+        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5)) ||
+        (state.mode === "race" && i === 1) ||
+        (state.mode !== "single" && state.mode !== "race" && i === 1);
       btn.className = "levelCell" + (unlocked ? "" : " locked");
       btn.type = "button";
       btn.textContent = `第 ${i} 关`;
@@ -234,6 +328,23 @@
     state.levelPaused = false;
   }
 
+  function hideWinDialog() {
+    if (ui.winDialogBackdrop) ui.winDialogBackdrop.style.display = "none";
+    state._winOnNext = null;
+    state._winOnExit = null;
+  }
+
+  function showWinDialog({ title, message, nextText, exitText, onNext, onExit }) {
+    if (!ui.winDialogBackdrop) return;
+    if (ui.winDialogTitle) ui.winDialogTitle.textContent = title || "通关";
+    if (ui.winDialogMsg) ui.winDialogMsg.textContent = message || "";
+    if (ui.btnWinNext) ui.btnWinNext.textContent = nextText || "下一关";
+    if (ui.btnWinExit) ui.btnWinExit.textContent = exitText || "退出";
+    state._winOnNext = typeof onNext === "function" ? onNext : null;
+    state._winOnExit = typeof onExit === "function" ? onExit : null;
+    ui.winDialogBackdrop.style.display = "flex";
+  }
+
   function getActiveLevelScene() {
     return state.levelScene || null;
   }
@@ -253,6 +364,7 @@
     if (!state.phaser) return;
     const ok = confirm("确定退出当前关卡吗？退出后不会保存进度。");
     if (!ok) return;
+    hideWinDialog();
     destroyPhaser();
     setLevelPlayLayout(false);
     showPanel("menu");
@@ -332,10 +444,53 @@
     }
   }
 
+  async function onLevelWin(levelId, extra = {}) {
+    const mode = state.mode;
+    if (mode === "single") {
+      const nextId = Number(levelId) + 1;
+      showWinDialog({
+        title: extra.title || "通关成功",
+        message: extra.message || `第 ${levelId} 关完成。`,
+        nextText: "下一关",
+        exitText: "退出",
+        onNext: async () => {
+          hideWinDialog();
+          await startGame(nextId);
+        },
+        onExit: () => {
+          hideWinDialog();
+          destroyPhaser();
+          setLevelPlayLayout(false);
+          showPanel("menu");
+        },
+      });
+      return;
+    }
+    if (mode === "race") {
+      showWinDialog({
+        title: extra.title || "竞速结束",
+        message: extra.message || `第 ${levelId} 关结束。`,
+        nextText: "再来一局",
+        exitText: "退出",
+        onNext: async () => {
+          hideWinDialog();
+          await startGame(levelId);
+        },
+        onExit: () => {
+          hideWinDialog();
+          destroyPhaser();
+          setLevelPlayLayout(false);
+          showPanel("menu");
+        },
+      });
+    }
+  }
+
   async function startGame(levelId) {
+    hideWinDialog();
     if (state.mode === "single" && levelId === 1) {
       if (window.SinglePlayerLevels?.startLevel1) {
-        await window.SinglePlayerLevels.startLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe }, levelId);
+        await window.SinglePlayerLevels.startLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("第一关脚本未加载。");
       }
@@ -343,7 +498,7 @@
     }
     if (state.mode === "single" && levelId === 2) {
       if (window.SinglePlayerLevels?.startLevel2) {
-        await window.SinglePlayerLevels.startLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe }, levelId);
+        await window.SinglePlayerLevels.startLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("第二关脚本未加载。");
       }
@@ -351,9 +506,35 @@
     }
     if (state.mode === "single" && levelId === 3) {
       if (window.SinglePlayerLevels?.startLevel3) {
-        await window.SinglePlayerLevels.startLevel3({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe }, levelId);
+        await window.SinglePlayerLevels.startLevel3({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("第三关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "single" && levelId === 4) {
+      if (window.SinglePlayerLevels?.startLevel4) {
+        await window.SinglePlayerLevels.startLevel4({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("第四关脚本未加载。");
+      }
+      return;
+    }
+
+    if (state.mode === "single" && levelId === 5) {
+      if (window.SinglePlayerLevels?.startLevel5) {
+        await window.SinglePlayerLevels.startLevel5({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("第五关脚本未加载。");
+      }
+      return;
+    }
+
+    if (state.mode === "race" && levelId === 1) {
+      if (window.DoublePlayerLevels?.startRaceLevel1) {
+        await window.DoublePlayerLevels.startRaceLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人竞速第一关脚本未加载。");
       }
       return;
     }
@@ -1526,7 +1707,7 @@
     function resolveTilesetImageUrl(imageSource, baseUrl) {
       // imageSource may contain paths that don't match our runtime assets folder.
       // We'll try a few fallbacks that match this project's structure:
-      // - sticker-knight/map/*.png  -> map/*.png  (sibling of dung.tsx)
+      // - sticker-knight/map/*.png  -> map/*.png  (sibling of one.tsx)
       // - basename only -> map/<basename>
       // - original as-is
       const candidates = [];
@@ -1579,7 +1760,7 @@
         const tsxBaseName = (ts.source || "").split("/").pop();
         const fallbackTsxUrl = tsxBaseName ? new URL(`./${tsxBaseName}`, tmjBase).toString() : null;
         // Some Windows renames can accidentally create filenames like `dung .tsx`
-        // (space before `.tsx`). Your TMJ/ts.source usually expects `dung.tsx`,
+        // (space before `.tsx`). Your TMJ/ts.source usually expects `one.tsx`,
         // so add a couple of safe variants as extra fetch candidates.
         const tsxCandidates = [];
         if (fallbackTsxUrl) tsxCandidates.push(fallbackTsxUrl);
@@ -1725,7 +1906,7 @@
         const tileId = gid - (chosen.firstgid || 1);
         const tile = (chosen.tiles || []).find((t) => t.id === tileId);
         if (tile) return { ...tile, tileId, tileset: chosen };
-        // Fallback for single-image tilesets (not used in your current dung.tsx, but kept).
+        // Fallback for single-image tilesets (not used in your current one.tsx, but kept).
         if (chosen.kind === "single" && chosen.imageUrl) {
           return { key: chosen.key, imageUrl: chosen.imageUrl, width: chosen.tilewidth, height: chosen.tileheight, tileId, tileset: chosen };
         }
@@ -2059,6 +2240,8 @@
     ui.volumeSlider.value = String(state.volume);
     ui.volumeValue.textContent = String(state.volume);
     applyVolumeToMedia();
+    state.keybinds = loadKeybinds();
+    syncKeybindsUI();
     renderLevelsForMode();
   }
 
@@ -2077,6 +2260,25 @@
 
     if (ui.btnPauseLevel) ui.btnPauseLevel.addEventListener("click", togglePauseLevel);
     if (ui.btnExitLevel) ui.btnExitLevel.addEventListener("click", exitLevelWithConfirm);
+    if (ui.btnWinNext) ui.btnWinNext.addEventListener("click", () => state._winOnNext && state._winOnNext());
+    if (ui.btnWinExit) ui.btnWinExit.addEventListener("click", () => state._winOnExit && state._winOnExit());
+    if (ui.winDialogBackdrop) ui.winDialogBackdrop.addEventListener("click", (e) => {
+      if (e.target === ui.winDialogBackdrop && state._winOnExit) state._winOnExit();
+    });
+
+    // Keybind settings
+    syncKeybindsUI();
+    if (ui.btnBindP1Left) ui.btnBindP1Left.addEventListener("click", () => beginBindKey("玩家1-左", (code) => (state.keybinds.p1.left = code)));
+    if (ui.btnBindP1Right) ui.btnBindP1Right.addEventListener("click", () => beginBindKey("玩家1-右", (code) => (state.keybinds.p1.right = code)));
+    if (ui.btnBindP1Jump) ui.btnBindP1Jump.addEventListener("click", () => beginBindKey("玩家1-跳", (code) => (state.keybinds.p1.jump = code)));
+    if (ui.btnBindP2Left) ui.btnBindP2Left.addEventListener("click", () => beginBindKey("玩家2-左", (code) => (state.keybinds.p2.left = code)));
+    if (ui.btnBindP2Right) ui.btnBindP2Right.addEventListener("click", () => beginBindKey("玩家2-右", (code) => (state.keybinds.p2.right = code)));
+    if (ui.btnBindP2Jump) ui.btnBindP2Jump.addEventListener("click", () => beginBindKey("玩家2-跳", (code) => (state.keybinds.p2.jump = code)));
+    if (ui.btnResetKeybinds) ui.btnResetKeybinds.addEventListener("click", () => {
+      state.keybinds = structuredClone(DEFAULT_KEYBINDS);
+      syncKeybindsUI();
+      saveKeybinds(state.keybinds);
+    });
 
     // If already logged in, go straight to app.
     try {

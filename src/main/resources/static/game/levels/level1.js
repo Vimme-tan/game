@@ -181,6 +181,7 @@
     const deathRects = [];
     const fallRects = [];
     const moveDBlocks = [];
+    const moveDTriggers = [];
 
     for (const layer of layers) {
       const data = layer.data;
@@ -202,6 +203,9 @@
           const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
           const imgKey = url ? imageToKey.get(url) : null;
           moveDBlocks.push({ cx, cy, w: tileW, h: tileH, imgKey, initialMoveD: moveDInitial });
+          if (String(layer.name || "").toLowerCase().includes("act")) {
+            moveDTriggers.push({ cx, cy, w: tileW, h: tileH });
+          }
         }
       }
     }
@@ -224,6 +228,8 @@
         this.layer3Imgs = [];
         this.lastRespawnAt = -1e9;
         this.deathInvulnMs = 900;
+        this.trapArmAt = this.time.now + 500;
+        this.wasInMoveDTrigger = false;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.physics.world.gravity.y = 980;
@@ -324,16 +330,6 @@
           this.physics.add.existing(s, true);
           this.deathSensors.add(s);
         });
-        this.fallObjSensors = makeSensorGroup();
-        for (const o of fallareaObjects) {
-          const x = Number(o.getAttribute("x") || 0);
-          const y = Number(o.getAttribute("y") || 0);
-          const w = Number(o.getAttribute("width") || tileW);
-          const h = Number(o.getAttribute("height") || tileH);
-          const s = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x0000ff, 0);
-          this.physics.add.existing(s, true);
-          this.fallObjSensors.add(s);
-        }
         this.deathObjSensors = makeSensorGroup();
         for (const o of deathObjects) {
           const x = Number(o.getAttribute("x") || 0);
@@ -402,7 +398,7 @@
             await api.complete(levelId, 10000);
             await refreshMe();
           } catch {}
-          alert("胜利！");
+          if (typeof ctx.onLevelWin === "function") ctx.onLevelWin(levelId);
         });
         this.physics.add.overlap(this.player, this.deathSensors, () => {
           if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
@@ -412,10 +408,13 @@
           if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
           this.handleDeath();
         });
-        this.physics.add.overlap(this.player, this.fallObjSensors, () => {
-          if (this.finished) return;
-          this.triggerTrapEvent();
-        });
+        // moveD trigger region: trigger once only on "enter" (outside -> inside)
+        this.moveDTriggerRects = moveDTriggers.map((t) => ({
+          left: t.cx - t.w / 2,
+          right: t.cx + t.w / 2,
+          top: t.cy - t.h / 2,
+          bottom: t.cy + t.h / 2,
+        }));
 
         this.controls = this.input.keyboard.createCursorKeys();
         this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
@@ -424,21 +423,14 @@
         if (!this.player?.body) return;
         if (this.dead || this.finished) return;
 
-        // Proximity trigger: only near trap spikes (death), not near generic moveD cover.
-        if (!this.trapEventTriggered && this.trapSpikeImgs.length) {
-          const px = this.player.x;
-          const py = this.player.y;
-          const th2 = (tileW * 1.4) * (tileW * 1.4);
-          for (const img of this.trapSpikeImgs) {
-            const sx = img.x + img.displayWidth * 0.5;
-            const sy = img.y - img.displayHeight * 0.5;
-            const dx = px - sx;
-            const dy = py - sy;
-            if (dx * dx + dy * dy <= th2) {
-              this.triggerTrapEvent();
-              break;
-            }
-          }
+        // Trigger is now only via dedicated moveD trigger tiles.
+        if (!this.trapEventTriggered && this.time.now >= this.trapArmAt && this.moveDTriggerRects.length) {
+          const p = this.player.getBounds();
+          const inNow = this.moveDTriggerRects.some(
+            (r) => !(p.right < r.left || p.left > r.right || p.bottom < r.top || p.top > r.bottom)
+          );
+          if (inNow && !this.wasInMoveDTrigger) this.triggerTrapEvent();
+          this.wasInMoveDTrigger = inNow;
         }
 
         for (const blk of this.moveDBodies) {
@@ -454,7 +446,7 @@
           }
         }
 
-        const speed = 220;
+        const speed = 550;
         const left = this.controls.left.isDown;
         const right = this.controls.right.isDown;
         if (left) this.player.setVelocityX(-speed);
@@ -466,7 +458,7 @@
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
         // Jump power x1.5
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-720);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-1200);
       },
     };
 

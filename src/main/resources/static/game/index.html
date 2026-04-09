@@ -165,6 +165,34 @@
         }
         .sliderRow { display:flex; align-items:center; gap: 12px; }
         input[type="range"]{ width: min(440px, 80vw); }
+        .divider{ height:1px; background: var(--lineSoft); margin: 14px 0; }
+        .settingsGrid{
+            display:grid;
+            grid-template-columns: 120px 1fr auto;
+            gap: 10px 12px;
+            align-items:center;
+            margin-top: 10px;
+        }
+        .keyBox{
+            height: 42px;
+            border-radius: 10px;
+            border: 1px solid var(--lineSoft);
+            background: rgba(0,0,0,.28);
+            color: var(--fg);
+            padding: 0 10px;
+            font-size: 13px;
+        }
+        .miniBtn{
+            height: 42px;
+            padding: 0 12px;
+            border-radius: 10px;
+            border: 1px solid var(--lineSoft);
+            background: rgba(59,130,246,.25);
+            color: var(--fg);
+            font-weight: 800;
+            cursor: pointer;
+            white-space: nowrap;
+        }
         #gameHost {
             margin-top: 16px;
             border: 1px solid var(--lineSoft);
@@ -196,6 +224,28 @@
         }
         #panelLevels.isPlaying #levelToolbar{ display:flex; }
         canvas { display:block; margin: 0 auto; }
+        /* Win dialog */
+        #winDialogBackdrop{
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.55);
+            display:none;
+            align-items:center;
+            justify-content:center;
+            z-index: 50;
+            padding: 18px;
+        }
+        #winDialog{
+            width: min(520px, calc(100vw - 28px));
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(15,23,42,.92);
+            box-shadow: 0 18px 60px rgba(0,0,0,.55);
+            padding: 16px;
+        }
+        #winDialog h3{ margin: 0 0 10px; font-size: 20px; }
+        #winDialog p{ margin: 0 0 14px; color: #e5e7eb; line-height: 1.55; }
+        #winDialog .row{ justify-content:flex-end; }
     </style>
 </head>
 <body>
@@ -270,6 +320,28 @@
                 <div id="volumeValue" style="width:46px; text-align:right;">70</div>
             </div>
             <div class="hint">音量会实时控制背景音乐与点击音效，并自动保存。</div>
+
+            <div class="divider"></div>
+            <div style="font-weight:900; margin-bottom: 6px;">键位设置（双人竞速）</div>
+            <div class="hint">点击“绑定”后按下一个键（如：A / D / W / ← / → / 空格）。</div>
+
+            <div style="margin-top: 10px; font-weight:800;">玩家 1</div>
+            <div class="settingsGrid" aria-label="玩家1键位">
+                <div>左</div><input id="kbP1Left" class="keyBox" readonly /><button id="btnBindP1Left" class="miniBtn" type="button">绑定</button>
+                <div>右</div><input id="kbP1Right" class="keyBox" readonly /><button id="btnBindP1Right" class="miniBtn" type="button">绑定</button>
+                <div>跳</div><input id="kbP1Jump" class="keyBox" readonly /><button id="btnBindP1Jump" class="miniBtn" type="button">绑定</button>
+            </div>
+
+            <div style="margin-top: 12px; font-weight:800;">玩家 2</div>
+            <div class="settingsGrid" aria-label="玩家2键位">
+                <div>左</div><input id="kbP2Left" class="keyBox" readonly /><button id="btnBindP2Left" class="miniBtn" type="button">绑定</button>
+                <div>右</div><input id="kbP2Right" class="keyBox" readonly /><button id="btnBindP2Right" class="miniBtn" type="button">绑定</button>
+                <div>跳</div><input id="kbP2Jump" class="keyBox" readonly /><button id="btnBindP2Jump" class="miniBtn" type="button">绑定</button>
+            </div>
+
+            <div class="row" style="margin-top: 12px;">
+                <button id="btnResetKeybinds" class="btn ghost" type="button">恢复默认键位</button>
+            </div>
         </div>
     </section>
 
@@ -278,11 +350,25 @@
     </div>
 </div>
 
+<div id="winDialogBackdrop" role="dialog" aria-modal="true" aria-label="通关提示">
+    <div id="winDialog">
+        <h3 id="winDialogTitle">通关</h3>
+        <p id="winDialogMsg">下一步？</p>
+        <div class="row">
+            <button id="btnWinExit" class="btn ghost" type="button">退出</button>
+            <button id="btnWinNext" class="btn" type="button">下一关</button>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <script src="./levels/level1.js"></script>
 <script src="./levels/level2.js"></script>
 <script src="./levels/level3.js"></script>
+<script src="./levels/level4.js"></script>
+<script src="./levels/level5.js"></script>
+<script src="./levels/race1.js"></script>
 <script src="./game.js"></script>
 </body>
 </html>
