@@ -312,13 +312,11 @@
       update: function () {
         if (!this.player?.body || this.finished) return;
 
-        const hitWorldEdge =
-          this.player.body.blocked.left ||
-          this.player.body.blocked.right ||
-          this.player.body.blocked.up ||
-          this.player.body.blocked.down;
+        const cam = this.cameras?.main;
+        const playerBottom = this.player.getBounds().bottom;
+        const hitGameViewportBottom = !!cam && playerBottom >= cam.worldView.bottom - 2;
         if (
-          hitWorldEdge ||
+          hitGameViewportBottom ||
           this.player.x < -tileW ||
           this.player.x > worldW + tileW ||
           this.player.y < -tileH ||

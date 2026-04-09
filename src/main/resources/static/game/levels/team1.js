@@ -439,17 +439,16 @@
         if (this.finished) return;
         const pSpeed = 520;
         const jumpV = -1200;
-        const hitEdge = (p) =>
-          !!p?.body &&
-          (p.body.blocked.left || p.body.blocked.right || p.body.blocked.up || p.body.blocked.down);
+        const cam = this.cameras?.main;
+        const hitGameViewportBottom = (p) => !!p && !!cam && p.getBounds().bottom >= cam.worldView.bottom - 2;
         const outOfMap = (p) =>
           !!p &&
           (p.x < -tileW || p.x > worldW + tileW || p.y < -tileH || p.y > worldH + tileH);
-        if (hitEdge(this.p1) || outOfMap(this.p1)) {
+        if (hitGameViewportBottom(this.p1) || outOfMap(this.p1)) {
           this.p1.setPosition(this.p1Spawn.x, this.p1Spawn.y);
           this.p1.body?.setVelocity(0, 0);
         }
-        if (hitEdge(this.p2) || outOfMap(this.p2)) {
+        if (hitGameViewportBottom(this.p2) || outOfMap(this.p2)) {
           this.p2.setPosition(this.p2Spawn.x, this.p2Spawn.y);
           this.p2.body?.setVelocity(0, 0);
         }
