@@ -11,7 +11,7 @@
     destroyPhaser();
 
     if (window.location.protocol === "file:") {
-      alert("当前是 file:// 方式打开页面，浏览器会阻止加载本地 JSON 资源。\n请用 http:// 方式运行一个本地静态服务器后再测试（例如 localhost）。");
+      alert("Please run via http://localhost instead of file:// to load local JSON resources.");
       return;
     }
 
@@ -22,7 +22,7 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       mapData = await r.json();
     } catch (e) {
-      alert(`第二关地图加载失败：${e?.message || String(e)}`);
+      alert(`??????????${e?.message || String(e)}`);
       return;
     }
 
@@ -112,7 +112,7 @@
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
     if (!tilesetInfos.length) {
-      alert("第二关资源加载失败：TSX tileset 未能解析。");
+      alert("Level 2 resource load failed: TSX tileset parse failed.");
       return;
     }
 
@@ -185,8 +185,11 @@
       }
     }
 
-    const playerSpeed = 550;
-    const spikeSpeed = playerSpeed * 0.7;
+    const playerSpeed = 300; // requested fast movement
+    const jumpV = -920;
+    const gravityY = 900;
+    const playerMaxVy = 900;
+    const spikeSpeed = playerSpeed / 0.9;
     const nearThreshold = tileW * 2.2;
     const nearTh2 = nearThreshold * nearThreshold;
     const reverseCooldownMs = 250;
@@ -207,7 +210,7 @@
         this.deathInvulnMs = 700;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 980;
+        this.physics.world.gravity.y = gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
@@ -249,7 +252,7 @@
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
-        this.player.body.setMaxVelocity(250, 900);
+        this.player.body.setMaxVelocity(220, playerMaxVy);
         this.player.body.setDragX(900);
         this.physics.add.collider(this.player, this.solids);
 
@@ -316,8 +319,7 @@
         else this.player.setTexture("char_front");
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
-        // Jump power x1.5
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-1200);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(jumpV);
 
         const px = this.player.x;
         const py = this.player.y;

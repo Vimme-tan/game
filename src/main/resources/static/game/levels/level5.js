@@ -11,7 +11,7 @@
     destroyPhaser();
 
     if (window.location.protocol === "file:") {
-      alert("当前是 file:// 方式打开页面，浏览器会阻止加载本地 JSON 资源。\n请用 http:// 方式运行一个本地静态服务器后再测试（例如 localhost）。");
+      alert("Please run via http://localhost instead of file:// to load local JSON resources.");
       return;
     }
 
@@ -22,7 +22,7 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       mapData = await r.json();
     } catch (e) {
-      alert(`第五关地图加载失败：${e?.message || String(e)}`);
+      alert(`??????????${e?.message || String(e)}`);
       return;
     }
 
@@ -135,7 +135,7 @@
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
     if (!tilesetInfos.length) {
-      alert("第五关资源加载失败：TSX tileset 未能解析。");
+      alert("Level 5 resource load failed: TSX tileset parse failed.");
       return;
     }
 
@@ -217,6 +217,7 @@
 
         const isRmoveSpike = p.rmove === true && p.death === true;
         const isRrmoveWall = p.rrmove === true && p.solid === true;
+        const isFake = p.fake === true;
         if (p.win === true) winRects.push({ cx, cy, w: tileW, h: tileH });
 
         if (layerName === "two" && isRmoveSpike) moving.two_rmove_spikes.push({ x: col * tileW, y: (row + 1) * tileH, key });
@@ -226,13 +227,16 @@
         if (layerName === "two" && isRrmoveWall) moving.two_rrmove_walls.push({ x: col * tileW, y: (row + 1) * tileH, key });
         if (layerName === "four" && isRrmoveWall) moving.four_rrmove_walls.push({ x: col * tileW, y: (row + 1) * tileH, key });
 
-        if (p.solid === true && !isRrmoveWall) solids.push({ cx, cy, w: tileW, h: tileH });
+        if (p.solid === true && !isRrmoveWall && !isFake) solids.push({ cx, cy, w: tileW, h: tileH });
         if (p.death === true && !isRmoveSpike) allDeathSpawns.push({ x: col * tileW, y: (row + 1) * tileH, key });
       }
     }
 
-    const playerSpeed = 550;
-    const jumpV = -1200;
+    const playerSpeed = 300; // requested fast movement
+    const jumpV = -920;
+    const gravityY = 900;
+    const playerMaxVy = 900;
+    const wallMoveSpeed = 120; // slower than player speed
     const scene = {
       preload: function () {
         this._loadErrors = [];
@@ -252,7 +256,7 @@
         this.deathInvulnMs = 900;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 980;
+        this.physics.world.gravity.y = gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
@@ -260,7 +264,7 @@
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
         if (this._loadErrors.length) {
           console.error("[level5 loaderror urls]", this._loadErrors);
-          alert(`第五关有 ${this._loadErrors.length} 个图片加载失败，已输出到控制台。`);
+          alert(`???? ${this._loadErrors.length} ????????????????`);
         }
 
         for (const layer of tileLayers) {
@@ -298,7 +302,7 @@
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
-        this.player.body.setMaxVelocity(250, 900);
+        this.player.body.setMaxVelocity(220, playerMaxVy);
         this.player.body.setDragX(900);
         this.physics.add.collider(this.player, this.solids);
 
@@ -363,8 +367,12 @@
           if (b.body) {
             b.body.setAllowGravity(false);
             b.body.setImmovable(true);
-            b.body.moves = false;
+            b.body.moves = true;
+            b.body.setVelocityX(0);
           }
+          b._moveRemaining = 0;
+          b._moveDir = 0;
+          b._destroyOnDone = false;
           this.physics.add.collider(this.player, b);
           return b;
         };
@@ -414,24 +422,29 @@
           for (const sp of this.layerFourRmoveSpikes) sp.setAlpha(1);
           tweenMoveBy(this.layerFourRmoveSpikes, 0, -tileH * 1, 180);
         };
+        this.startMoveWalls = (walls, distancePx, destroyOnDone) => {
+          if (!walls || !walls.length) return;
+          const dir = distancePx >= 0 ? 1 : -1;
+          const dist = Math.abs(distancePx);
+          for (const w of walls) {
+            if (!w || !w.body) continue;
+            w._moveRemaining = dist;
+            w._moveDir = dir;
+            w._destroyOnDone = !!destroyOnDone;
+            w.body.setVelocityX(dir * wallMoveSpeed);
+          }
+        };
         this.onTouch2 = () => {
           if (this.touched.touch2) return;
           this.touched.touch2 = true;
           if (this.touch2Sensor?.body) this.touch2Sensor.body.enable = false;
-          tweenMoveBy(this.layerTwoRrWalls, tileW * 24, 0, 220, () => {
-            for (const w of this.layerTwoRrWalls) {
-              if (w.body) w.body.enable = false;
-              w.setVisible(false);
-              w.destroy();
-            }
-            this.layerTwoRrWalls = [];
-          });
+          this.startMoveWalls(this.layerTwoRrWalls, tileW * 24, true);
         };
         this.onTouch3 = () => {
           if (this.touched.touch3) return;
           this.touched.touch3 = true;
           if (this.touch3Sensor?.body) this.touch3Sensor.body.enable = false;
-          tweenMoveBy(this.layerFourRrWalls, tileW * 3, 0, 220);
+          this.startMoveWalls(this.layerFourRrWalls, tileW * 5, false);
         };
         this.onTouch4 = () => {
           if (this.touched.touch4) return;
@@ -477,6 +490,36 @@
           this.lastRespawnAt = this.time.now;
           return;
         }
+
+        const dt = this.game.loop.delta / 1000;
+        const stepMax = wallMoveSpeed * dt;
+        const updateWallList = (list) => {
+          if (!list || !list.length) return list;
+          const keep = [];
+          for (const w of list) {
+            if (!w || !w.body) continue;
+            if (w._moveRemaining > 0) {
+              const step = Math.min(stepMax, w._moveRemaining);
+              w.x += w._moveDir * step;
+              w._moveRemaining -= step;
+              w.body.updateFromGameObject?.();
+              w.body.setVelocityX(w._moveDir * wallMoveSpeed);
+              if (w._moveRemaining <= 0) {
+                w.body.setVelocityX(0);
+                if (w._destroyOnDone) {
+                  w.body.enable = false;
+                  w.setVisible(false);
+                  w.destroy();
+                  continue;
+                }
+              }
+            }
+            keep.push(w);
+          }
+          return keep;
+        };
+        this.layerTwoRrWalls = updateWallList(this.layerTwoRrWalls);
+        this.layerFourRrWalls = updateWallList(this.layerFourRrWalls);
 
         const mobile = window.__PT_isMobileControl?.() === true;
         const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));

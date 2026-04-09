@@ -11,7 +11,7 @@
     destroyPhaser();
 
     if (window.location.protocol === "file:") {
-      alert("当前是 file:// 方式打开页面，浏览器会阻止加载本地 JSON 资源。\n请用 http:// 方式运行一个本地静态服务器后再测试（例如 localhost）。");
+      alert("Please run via http://localhost instead of file:// to load local JSON resources.");
       return;
     }
 
@@ -22,7 +22,7 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       mapData = await r.json();
     } catch (e) {
-      alert(`竞速第一关地图加载失败：${e?.message || String(e)}`);
+      alert(`????????????${e?.message || String(e)}`);
       return;
     }
 
@@ -133,7 +133,7 @@
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
     if (!tilesetInfos.length) {
-      alert("竞速第一关资源加载失败：TSX tileset 未能解析。");
+      alert("Race level 1 resource load failed: TSX tileset parse failed.");
       return;
     }
 
@@ -274,7 +274,7 @@
         this.finished = false;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 980;
+        this.physics.world.gravity.y = 900;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
@@ -355,7 +355,7 @@
           p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setOffset(0, 0);
           p.body.setDragX(900);
-          p.body.setMaxVelocity(250, 900);
+          p.body.setMaxVelocity(220, 900);
           this.physics.add.collider(p, this.solids);
           for (const m of this.movers) this.physics.add.collider(p, m);
           for (const sp of this.spikes) this.physics.add.overlap(p, sp, () => this.respawnPlayer(p));
@@ -384,7 +384,7 @@
         const finish = (who) => {
           if (this.finished) return;
           this.finished = true;
-          if (typeof onLevelWin === "function") onLevelWin(levelId, { title: "竞速结束", message: `${who} 到达终点！` });
+          if (typeof onLevelWin === "function") onLevelWin(levelId, { title: "Race Finished", message: `${who} reached the goal.` });
         };
         this.physics.add.overlap(this.p1, this.winSensors, () => finish("P1"));
         this.physics.add.overlap(this.p2, this.winSensors, () => finish("P2"));
@@ -454,8 +454,8 @@
         if (outOfMap(this.p2)) this.respawnPlayer(this.p2);
 
         // P1
-        const pSpeed = 520;
-        const jumpV = -1200;
+        const pSpeed = 300;
+        const jumpV = -920;
         const mobile = window.__PT_isMobileControl?.() === true;
         const p1Left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const p1Right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));

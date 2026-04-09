@@ -1,4 +1,4 @@
-// Single-player Level 1 (TMX)
+// Single-player Level 1 (JSON)
 // Exposes: window.SinglePlayerLevels.startLevel1(ctx, levelId)
 (function () {
   window.SinglePlayerLevels = window.SinglePlayerLevels || {};
@@ -10,45 +10,38 @@
     setLevelPlayLayout(true);
     destroyPhaser();
 
-    const tmxUrl = new URL(assets.level1Tmx, window.location.href).toString();
+    const mapUrl = new URL(assets.level1Json, window.location.href).toString();
     if (window.location.protocol === "file:") {
-      alert("当前是 file:// 方式打开页面，浏览器会阻止加载本地 TMX 资源。\n请用 http:// 方式运行一个本地静态服务器后再测试（例如 localhost）。");
+      alert("Please run via http://localhost instead of file:// to load local map resources.");
       return;
     }
 
-    let tmxText;
+    let mapData;
     try {
-      const r = await fetch(tmxUrl, { credentials: "same-origin" });
+      const r = await fetch(mapUrl, { credentials: "same-origin" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      tmxText = await r.text();
+      mapData = await r.json();
     } catch (e) {
-      alert(`第一关地图加载失败：${e?.message || String(e)}`);
+      alert(`Level 1 map load failed: ${e?.message || String(e)}`);
       return;
     }
 
-    const tmxXml = new DOMParser().parseFromString(tmxText, "application/xml");
-    const mapEl = tmxXml.querySelector("map");
-    if (!mapEl) {
-      alert("TMX 解析失败：找不到 <map>。");
-      return;
-    }
-
-    const mapW = Number(mapEl.getAttribute("width") || 1);
-    const mapH = Number(mapEl.getAttribute("height") || 1);
-    const tileW = Number(mapEl.getAttribute("tilewidth") || 64);
-    const tileH = Number(mapEl.getAttribute("tileheight") || 64);
+    const mapW = Number(mapData.width || 1);
+    const mapH = Number(mapData.height || 1);
+    const tileW = Number(mapData.tilewidth || 64);
+    const tileH = Number(mapData.tileheight || 64);
     const worldW = mapW * tileW;
     const worldH = mapH * tileH;
 
-    const mapBase = new URL(tmxUrl);
+    const mapBase = new URL(mapUrl);
 
-    function parseBoolProp(propEl) {
-      if (!propEl) return undefined;
-      const type = String(propEl.getAttribute("type") || "").toLowerCase();
-      const value = String(propEl.getAttribute("value") || "").toLowerCase();
-      if (type === "bool") return value === "true" || value === "1";
-      return value === "true" || value === "1";
-    }
+    const parseBool = (p) => {
+      if (!p) return undefined;
+      const type = String(p.type || "").toLowerCase();
+      const v = p.value;
+      if (type === "bool") return v === true || v === 1 || String(v).toLowerCase() === "true";
+      return v === true || v === 1 || String(v).toLowerCase() === "true";
+    };
     function codeToPhaserKeyCode(code) {
       if (typeof code !== "string" || !code) return null;
       if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
@@ -67,17 +60,33 @@
     function resolveTilesetImageUrl(imageSource, baseUrl) {
       const candidates = [];
       if (typeof imageSource !== "string" || !imageSource) return null;
-      if (imageSource.includes("sticker-knight/map/")) {
-        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
-        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
-      }
-      candidates.push(imageSource);
       const baseName = imageSource.split("/").pop();
+      const legacyNameMap = {
+        "1.png": "blue.png",
+        "2.png": "earthWall.png",
+        "3.png": "earthWall2.png",
+        "4.png": "doorRedStroked.png",
+        "5.png": "trap.png",
+      };
+      const mappedName = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
+      if (mappedName) {
+        candidates.push(`../../map/${mappedName}`);
+        candidates.push(`../map/${mappedName}`);
+        candidates.push(`map/${mappedName}`);
+        candidates.push(`./map/${mappedName}`);
+      }
       if (baseName) {
+        candidates.push(`../../map/${baseName}`);
         candidates.push(`../map/${baseName}`);
         candidates.push(`map/${baseName}`);
         candidates.push(`./map/${baseName}`);
       }
+      if (imageSource.includes("sticker-knight/map/")) {
+        candidates.push(imageSource.replace("sticker-knight/map/", "../../map/"));
+        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
+        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
+      }
+      candidates.push(imageSource);
       for (const c of candidates) {
         try {
           return new URL(c, baseUrl).toString();
@@ -122,50 +131,31 @@
         for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
           const propName = String(p.getAttribute("name") || "");
           if (!propName) continue;
-          props[propName] = parseBoolProp(p);
+          const type = String(p.getAttribute("type") || "").toLowerCase();
+          const value = p.getAttribute("value");
+          if (type === "bool") props[propName] = String(value).toLowerCase() === "true" || String(value) === "1";
+          else props[propName] = value;
         }
         tiles[id] = { id, imageSource, props };
       }
       return { name, tiles };
     }
 
-    // layers (CSV)
-    const layers = Array.from(mapEl.querySelectorAll("layer")).map((layerEl) => {
-      const name = layerEl.getAttribute("name") || "";
-      const dataEl = layerEl.querySelector("data");
-      const encoding = String(dataEl?.getAttribute("encoding") || "").toLowerCase();
-      const raw = (dataEl?.textContent || "").trim();
-      if (encoding !== "csv" && encoding !== "") throw new Error(`Unsupported TMX encoding: ${encoding || "(empty)"}`);
-      const parts = raw.replace(/\s+/g, "").split(",");
-      const nums = parts.map((s) => (s === "" ? 0 : Number(s)));
-      return { name, data: nums.slice(0, mapW * mapH) };
-    });
-
-    // objects for born/death/fallarea
-    const objectGroups = Array.from(mapEl.querySelectorAll("objectgroup"));
-    const playersGroup = objectGroups.find((g) => String(g.getAttribute("name") || "").toLowerCase() === "players") || objectGroups[0] || null;
-    const playerObjects = playersGroup ? Array.from(playersGroup.querySelectorAll("object")) : [];
-    let bornObj = playerObjects.find((o) => {
-      const props = Array.from(o.querySelectorAll("properties > property"));
-      return props.some((p) => {
-        const n = String(p.getAttribute("name") || "").toLowerCase();
-        return (n === "birth" || n === "born") && parseBoolProp(p);
-      });
-    });
-    if (!bornObj) bornObj = { x: tileW * 2, y: tileH * 2, width: tileW, height: tileH };
-
-    const deathObjects = playerObjects.filter((o) =>
-      Array.from(o.querySelectorAll("properties > property")).some((p) => String(p.getAttribute("name") || "").toLowerCase() === "death" && parseBoolProp(p))
-    );
-    const fallareaObjects = playerObjects.filter((o) =>
-      Array.from(o.querySelectorAll("properties > property")).some((p) => String(p.getAttribute("name") || "").toLowerCase() === "fallarea" && parseBoolProp(p))
-    );
+    const allLayers = Array.isArray(mapData.layers) ? mapData.layers : [];
+    const tileLayers = allLayers.filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
+    const opLayer = allLayers.find((l) => l && l.type === "objectgroup" && String(l.name || "").toLowerCase() === "op");
+    const opObjects = Array.isArray(opLayer?.objects) ? opLayer.objects : [];
+    const objHas = (o, key) =>
+      Array.isArray(o?.properties) && o.properties.some((p) => String(p.name || "").toLowerCase() === key && parseBool(p) === true);
+    const bornObj = opObjects.find((o) => objHas(o, "born")) || null;
+    const fallareaObj = opObjects.find((o) => objHas(o, "fallarea")) || null;
 
     // tilesets
     const tilesetInfos = [];
-    for (const tsEl of Array.from(mapEl.querySelectorAll("tileset"))) {
-      const firstgid = Number(tsEl.getAttribute("firstgid") || "1");
-      const source = tsEl.getAttribute("source");
+    for (const tsEl of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
+      const firstgid = Number(tsEl.firstgid || 1);
+      const source = tsEl.source;
+      if (!source) continue;
       try {
         const tsxText = await fetchTsxText(source, mapBase);
         const parsed = parseTsx(tsxText);
@@ -175,7 +165,7 @@
       }
     }
     if (!tilesetInfos.length) {
-      alert("第一关资源加载失败：TSX 文件读取失败。请确认 level1 目录下 tsx 文件存在并可访问。");
+      alert("Level 1 resource load failed: TSX files cannot be read.");
       return;
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
@@ -216,12 +206,11 @@
     const solids = [];
     const winRects = [];
     const deathRects = [];
-    const fallRects = [];
-    const moveDBlocks = [];
-    const moveDTriggers = [];
+    const fallTiles = [];
 
-    for (const layer of layers) {
+    for (const layer of tileLayers) {
       const data = layer.data;
+      const layerName = String(layer.name || "").toLowerCase();
       for (let idx = 0; idx < mapW * mapH; idx++) {
         const tile = resolveTileFromGid(data[idx] || 0);
         if (!tile) continue;
@@ -230,23 +219,22 @@
         const cx = col * tileW + tileW / 2;
         const cy = row * tileH + tileH / 2;
         const p = tile.props || {};
-        const hasMoveD = Object.prototype.hasOwnProperty.call(p, "moveD");
-        const moveDInitial = hasMoveD ? p.moveD === true : false;
-        if (p.solid === true && !hasMoveD) solids.push({ cx, cy, w: tileW, h: tileH });
+        const isFall = p.fall === true;
+        if (p.solid === true && !isFall) solids.push({ cx, cy, w: tileW, h: tileH });
         if (p.win === true) winRects.push({ cx, cy, w: tileW, h: tileH });
         if (p.death === true) deathRects.push({ cx, cy, w: tileW, h: tileH, imageSource: tile.imageSource });
-        if (p.fallarea === true) fallRects.push({ cx, cy, w: tileW, h: tileH });
-        if (hasMoveD) {
+        if (isFall && layerName === "three") {
           const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
           const imgKey = url ? imageToKey.get(url) : null;
-          moveDBlocks.push({ cx, cy, w: tileW, h: tileH, imgKey, initialMoveD: moveDInitial });
-          if (String(layer.name || "").toLowerCase().includes("act")) {
-            moveDTriggers.push({ cx, cy, w: tileW, h: tileH });
-          }
+          fallTiles.push({ cx, cy, w: tileW, h: tileH, imgKey });
         }
       }
     }
 
+    const PLAYER_SPEED = 300; // requested fast movement
+    const JUMP_V = -920; // about 7 tiles jump apex with gravity 900
+    const GRAVITY_Y = 900;
+    const PLAYER_MAX_VY = 900; // symmetric up/down speed cap
     const scene = {
       preload: function () {
         this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
@@ -258,60 +246,44 @@
         state.levelScene = this;
         this.finished = false;
         this.dead = false;
-        this.moveDActivated = false;
-        this.trapEventTriggered = false;
-        this.moveDBodies = [];
-        this.trapSpikeImgs = [];
-        this.layer3Imgs = [];
+        this.fallActivated = false;
+        this.fallBodies = [];
         this.lastRespawnAt = -1e9;
         this.deathInvulnMs = 900;
-        this.trapArmAt = this.time.now + 500;
-        this.wasInMoveDTrigger = false;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 980;
+        this.physics.world.gravity.y = GRAVITY_Y;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
 
+        const fallPosKey = (cx, cy) => `${Math.round(cx)}:${Math.round(cy)}`;
+        const fallPosSet = new Set(fallTiles.map((t) => fallPosKey(t.cx, t.cy)));
+
         // render tiles
-        for (let layerIdx = 0; layerIdx < layers.length; layerIdx++) {
-          const layer = layers[layerIdx];
+        for (let layerIdx = 0; layerIdx < tileLayers.length; layerIdx++) {
+          const layer = tileLayers[layerIdx];
+          const layerName = String(layer.name || "").toLowerCase();
           const data = layer.data;
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(data[idx] || 0);
             if (!tile) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
+            const cx = col * tileW + tileW / 2;
+            const cy = row * tileH + tileH / 2;
+            // For fall blocks, we do NOT draw static tiles here.
+            // They will be spawned as physics-enabled images so they can visibly fall.
+            if (layerName === "three" && tile?.props?.fall === true && fallPosSet.has(fallPosKey(cx, cy))) continue;
             const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
             const key = url ? imageToKey.get(url) : null;
             if (!key) continue;
             const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
             const isWin = tile.props && tile.props.win === true;
             img.setDisplaySize(isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH);
-            if (Object.prototype.hasOwnProperty.call(tile.props || {}, "moveD")) {
-              // Level1 trap cover should be visible initially and fall after trigger.
-              const initial = tile.props.moveD === true;
-              img.setAlpha(layerIdx === 2 ? 1 : (initial ? 1 : 0));
-              const block = moveDBlocks.find((b) => b.cx === col * tileW + tileW / 2 && b.cy === row * tileH + tileH / 2);
-              if (block) block.img = img;
-            }
-            const isTrapSpike =
-              tile.props &&
-              tile.props.death === true &&
-              typeof tile.imageSource === "string" &&
-              tile.imageSource.toLowerCase().includes("trap.png");
-            if (isTrapSpike) {
-              img.setDisplaySize(tileW * 2, tileH * 2);
-              img.setAlpha(0);
-              this.trapSpikeImgs.push(img);
-            }
-            // Third tile layer acts as a trap cover: remember sprites for "drop down" animation.
-            if (layerIdx === 2) {
-              this.layer3Imgs.push(img);
-            }
+            // no special per-tile visuals needed here
           }
         }
 
@@ -323,23 +295,35 @@
           this.solids.add(rect);
         }
 
-        // moveD group
-        this.moveDGroup = this.physics.add.group();
-        for (const b of moveDBlocks) {
-          const rect = this.add.rectangle(b.cx, b.cy, b.w, b.h, 0x000000, 0);
-          this.physics.add.existing(rect);
-          if (rect.body) {
-            rect.body.setImmovable(!b.initialMoveD);
-            rect.body.allowGravity = !!b.initialMoveD;
-            rect.body.setVelocity(0, 0);
+        // fall blocks group (initially solid support; after trigger fall with gravity)
+        this.fallGroup = this.physics.add.group();
+        for (const b of fallTiles) {
+          if (b.imgKey) {
+            const img = this.physics.add.image(b.cx, b.cy, b.imgKey);
+            img.setDisplaySize(tileW, tileH);
+            img.setImmovable(true);
+            img.body.allowGravity = false;
+            img.body.setVelocity(0, 0);
+            this.fallGroup.add(img);
+            this.fallBodies.push({ ...b, obj: img, kind: "image" });
+          } else {
+            // Fallback: still provide collision even if texture missing
+            const rect = this.add.rectangle(b.cx, b.cy, b.w, b.h, 0x000000, 0);
+            this.physics.add.existing(rect);
+            if (rect.body) {
+              rect.body.setImmovable(true);
+              rect.body.allowGravity = false;
+              rect.body.setVelocity(0, 0);
+            }
+            this.fallGroup.add(rect);
+            this.fallBodies.push({ ...b, obj: rect, kind: "rect" });
           }
-          this.moveDGroup.add(rect);
-          this.moveDBodies.push({ ...b, rect });
         }
 
         // spawn
-        const bx = Number(bornObj.getAttribute ? bornObj.getAttribute("x") : bornObj.x) + (Number(bornObj.getAttribute ? bornObj.getAttribute("width") : bornObj.width) || tileW) / 2;
-        const by = Number(bornObj.getAttribute ? bornObj.getAttribute("y") : bornObj.y) || tileH * 2;
+        const bx = (Number(bornObj?.x) || tileW * 2) + (Number(bornObj?.width) || tileW) / 2;
+        const byRaw = Number(bornObj?.y) || tileH * 2;
+        const by = byRaw - Math.max(6, Math.min(tileH * 0.6, (Number(bornObj?.height) || tileH) * 0.6));
         this.bornX = bx;
         this.bornY = by;
 
@@ -348,11 +332,11 @@
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
-        this.player.body.setMaxVelocity(250, 900);
+        this.player.body.setMaxVelocity(220, PLAYER_MAX_VY);
         this.player.body.setDragX(900);
 
         this.physics.add.collider(this.player, this.solids);
-        this.physics.add.collider(this.player, this.moveDGroup);
+        this.physics.add.collider(this.player, this.fallGroup);
 
         const makeSensorGroup = () => this.physics.add.staticGroup();
         this.winSensors = makeSensorGroup();
@@ -367,52 +351,28 @@
           this.physics.add.existing(s, true);
           this.deathSensors.add(s);
         });
-        this.deathObjSensors = makeSensorGroup();
-        for (const o of deathObjects) {
-          const x = Number(o.getAttribute("x") || 0);
-          const y = Number(o.getAttribute("y") || 0);
-          const w = Number(o.getAttribute("width") || tileW);
-          const h = Number(o.getAttribute("height") || tileH);
-          const s = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0xff0000, 0);
-          this.physics.add.existing(s, true);
-          this.deathObjSensors.add(s);
-        }
-
-        this.activateMoveD = () => {
-          if (this.moveDActivated) return;
-          this.moveDActivated = true;
-          for (const blk of this.moveDBodies) {
-            const body = blk?.rect?.body;
+        this.activateFall = () => {
+          if (this.fallActivated) return;
+          this.fallActivated = true;
+          for (const blk of this.fallBodies) {
+            const body = blk?.obj?.body;
             if (!body) continue;
             body.setImmovable(false);
             body.allowGravity = true;
             body.setVelocity(0, 0);
-            if (blk.img) blk.img.setAlpha(1);
-          }
-          for (const img of this.trapSpikeImgs) img.setAlpha(1);
-        };
-        this.triggerTrapEvent = () => {
-          if (this.trapEventTriggered) return;
-          this.trapEventTriggered = true;
-          this.activateMoveD();
-          // Drop tile layer 3 downward to reveal trap area.
-          const dropDy = tileH * 4;
-          for (const img of this.layer3Imgs) {
-            this.tweens.add({ targets: img, y: img.y + dropDy, duration: 650, ease: "Sine.easeIn" });
           }
         };
-        this.resetMoveD = () => {
-          this.moveDActivated = false;
-          for (const img of this.trapSpikeImgs) img.setAlpha(0);
-          for (const blk of this.moveDBodies) {
-            if (blk?.rect?.body) {
-              blk.rect.body.enable = true;
-              blk.rect.body.setImmovable(!blk.initialMoveD);
-              blk.rect.body.allowGravity = !!blk.initialMoveD;
-              blk.rect.body.setVelocity(0, 0);
+        this.resetFall = () => {
+          this.fallActivated = false;
+          for (const blk of this.fallBodies) {
+            if (blk?.obj?.body) {
+              blk.obj.body.enable = true;
+              blk.obj.body.setImmovable(true);
+              blk.obj.body.allowGravity = false;
+              blk.obj.body.setVelocity(0, 0);
             }
-            blk.rect.setPosition(blk.cx, blk.cy);
-            if (blk.img) blk.img.setAlpha(1);
+            if (typeof blk?.obj?.setPosition === "function") blk.obj.setPosition(blk.cx, blk.cy);
+            if (typeof blk?.obj?.setVisible === "function") blk.obj.setVisible(true);
           }
         };
         this.handleDeath = () => {
@@ -422,7 +382,7 @@
           this.time.delayedCall(650, () => {
             this.dead = false;
             this.lastRespawnAt = this.time.now;
-            this.resetMoveD();
+            this.resetFall();
             this.player.setPosition(this.bornX, this.bornY);
             this.player.body.setVelocity(0, 0);
           });
@@ -441,17 +401,16 @@
           if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
           this.handleDeath();
         });
-        this.physics.add.overlap(this.player, this.deathObjSensors, () => {
-          if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
-          this.handleDeath();
-        });
-        // moveD trigger region: trigger once only on "enter" (outside -> inside)
-        this.moveDTriggerRects = moveDTriggers.map((t) => ({
-          left: t.cx - t.w / 2,
-          right: t.cx + t.w / 2,
-          top: t.cy - t.h / 2,
-          bottom: t.cy + t.h / 2,
-        }));
+        // fallarea trigger object
+        if (fallareaObj) {
+          const x = Number(fallareaObj.x || 0);
+          const y = Number(fallareaObj.y || 0);
+          const w = Number(fallareaObj.width || tileW);
+          const h = Number(fallareaObj.height || tileH);
+          this.fallareaSensor = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x00ffff, 0);
+          this.physics.add.existing(this.fallareaSensor, true);
+          this.physics.add.overlap(this.player, this.fallareaSensor, () => this.activateFall());
+        }
 
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
@@ -468,31 +427,25 @@
           this.handleDeath();
           return;
         }
-
-        // Trigger is now only via dedicated moveD trigger tiles.
-        if (!this.trapEventTriggered && this.time.now >= this.trapArmAt && this.moveDTriggerRects.length) {
-          const p = this.player.getBounds();
-          const inNow = this.moveDTriggerRects.some(
-            (r) => !(p.right < r.left || p.left > r.right || p.bottom < r.top || p.top > r.bottom)
-          );
-          if (inNow && !this.wasInMoveDTrigger) this.triggerTrapEvent();
-          this.wasInMoveDTrigger = inNow;
+        // Touching the game viewport boundary counts as death+respawn (not solid walls).
+        const vb = this.cameras.main.worldView;
+        const pb = this.player.getBounds();
+        if (pb.bottom >= vb.bottom - 2 || pb.top <= vb.top + 2 || pb.left <= vb.left + 2 || pb.right >= vb.right - 2) {
+          this.handleDeath();
+          return;
         }
-
-        for (const blk of this.moveDBodies) {
-          const img = blk.img;
-          const rect = blk.rect;
-          if (!img || !rect || !rect.body) continue;
-          img.x = rect.x - tileW / 2;
-          img.y = rect.y + tileH / 2;
-          if (rect.y - tileH / 2 > worldH + tileH) {
-            img.setAlpha(0);
-            rect.body.enable = false;
-            rect.body.setVelocity(0, 0);
+        // disable fall blocks when off-map
+        for (const blk of this.fallBodies) {
+          const obj = blk.obj;
+          if (!obj?.body) continue;
+          if (obj.y - tileH / 2 > worldH + tileH) {
+            obj.body.enable = false;
+            obj.body.setVelocity(0, 0);
+            if (typeof obj.setVisible === "function") obj.setVisible(false);
           }
         }
 
-        const speed = 550;
+        const speed = PLAYER_SPEED;
         const mobile = window.__PT_isMobileControl?.() === true;
         const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
@@ -504,8 +457,7 @@
         else this.player.setTexture("char_front");
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
-        // Jump power x1.5
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-1200);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(JUMP_V);
       },
     };
 

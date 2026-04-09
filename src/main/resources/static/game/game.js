@@ -146,7 +146,7 @@
   const assets = {
     menuBgm: "./assets/audio/bgm/menu_bgm.mp3",
     clickSfx: "./assets/audio/sfx/btn_click.wav",
-    level1Tmx: "./assets/maps/singleplayer/level1.tmx",
+    level1Json: "./assets/maps/singleplayer/level1/one.json",
     level2Json: "./assets/maps/singleplayer/level2.json",
     level3Json: "./assets/maps/singleplayer/level3/three.json",
     level4Json: "./assets/maps/singleplayer/level4.json",

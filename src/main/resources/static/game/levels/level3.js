@@ -11,7 +11,7 @@
     destroyPhaser();
 
     if (window.location.protocol === "file:") {
-      alert("当前是 file:// 方式打开页面，浏览器会阻止加载本地 JSON 资源。\n请用 http:// 方式运行一个本地静态服务器后再测试（例如 localhost）。");
+      alert("Please run via http://localhost instead of file:// to load local JSON resources.");
       return;
     }
 
@@ -22,7 +22,7 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       mapData = await r.json();
     } catch (e) {
-      alert(`第三关地图加载失败：${e?.message || String(e)}`);
+      alert(`??????????${e?.message || String(e)}`);
       return;
     }
 
@@ -146,7 +146,7 @@
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
     if (!tilesetInfos.length) {
-      alert("第三关资源加载失败：TSX tileset 未能解析。");
+      alert("Level 3 resource load failed: TSX tileset parse failed.");
       return;
     }
 
@@ -214,6 +214,10 @@
       }
     }
 
+    const PLAYER_SPEED = 300;
+    const JUMP_V = -920;
+    const GRAVITY_Y = 900;
+    const PLAYER_MAX_VY = 900;
     const scene = {
       preload: function () {
         this._loadErrors = [];
@@ -234,14 +238,14 @@
         this.bornY = spawnY;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 980;
+        this.physics.world.gravity.y = GRAVITY_Y;
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
         if (this._loadErrors.length) {
           console.error("[level3 loaderror urls]", this._loadErrors);
-          alert(`第三关有 ${this._loadErrors.length} 个图片加载失败，已输出到控制台。`);
+          alert(`???? ${this._loadErrors.length} ????????????????`);
         }
 
         for (const layer of tileLayers) {
@@ -273,7 +277,7 @@
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
         this.player.body.setDragX(900);
-        this.player.body.setMaxVelocity(250, 900);
+        this.player.body.setMaxVelocity(220, PLAYER_MAX_VY);
         this.physics.add.collider(this.player, this.solids);
 
         this.deathSensors = this.physics.add.staticGroup();
@@ -328,7 +332,7 @@
           return;
         }
 
-        const speed = 550;
+        const speed = PLAYER_SPEED;
         const mobile = window.__PT_isMobileControl?.() === true;
         const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
@@ -342,7 +346,7 @@
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {
-          this.player.setVelocityY(-1200);
+          this.player.setVelocityY(JUMP_V);
         }
       },
     };
