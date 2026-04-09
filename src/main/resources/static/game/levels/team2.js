@@ -197,31 +197,55 @@
       }
     }
 
-    // --- Level2-specific gid mapping fallback (because some TSX are empty) ---
-    // These values come from scanning `double2.json` usage.
-    const G = {
-      deathTrap: 58,
-      sword1: 120,
-      sword2: 184,
-      bomb1: 74,
-      bomb2: 138,
-      solid1: 122,
-      solid3: 19,
-      bluewin: 82,
-      redwin: 81,
-      vanish1: 211,
-      move: 275,
-      move1: 147,
+    // Ensure key visuals exist even when TSX is empty (444/555).
+    // We always load these from `assets/maps/map/`.
+    const EXTRA_MAP_IMAGES = [
+      "earthWall.png",
+      "earthWall2.png",
+      "trap.png",
+      "bombStroked.png",
+      "swordStroked.png",
+      "doorRedStroked.png",
+      "doorStroked.png",
+    ];
+    for (const f of EXTRA_MAP_IMAGES) {
+      const url = new URL(`../../map/${f}`, mapBase).toString();
+      if (!imageToKey.has(url)) imageToKey.set(url, `map_${f.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`);
+    }
+
+    const imgKeyByFile = (fileName) => {
+      const url = new URL(`../../map/${fileName}`, mapBase).toString();
+      return imageToKey.get(url) || null;
     };
 
+    // Find common tile textures by property (now TSX are complete).
+    const findFirstTileKeyByProp = (propName) => {
+      const key = String(propName || "").toLowerCase();
+      for (const ts of tilesetInfos) {
+        for (const idStr of Object.keys(ts.tiles || {})) {
+          const id = Number(idStr);
+          const t = ts.tiles[id];
+          if (!t?.props || t.props[key] !== true) continue;
+          const url = resolveTilesetImageUrl(t.imageSource, mapBase);
+          const k = url ? imageToKey.get(url) : null;
+          if (k) return k;
+        }
+      }
+      return null;
+    };
+    const deathTileKey = findFirstTileKeyByProp("death") || imgKeyByFile("trap.png");
+
     function spawnTileObject(scene, x, y, imgKey, opts) {
-      const o = imgKey ? scene.physics.add.image(x, y, imgKey) : scene.add.rectangle(x, y, tileW, tileH, 0xff00ff, 0.25);
+      const w = opts?.displayW ?? tileW;
+      const h = opts?.displayH ?? tileH;
+      const o = imgKey ? scene.physics.add.image(x, y, imgKey) : scene.add.rectangle(x, y, w, h, 0xff00ff, 0.25);
       if (!imgKey) scene.physics.add.existing(o);
       o.setDepth?.(opts?.depth ?? 10);
-      o.setDisplaySize?.(tileW, tileH);
+      o.setDisplaySize?.(w, h);
       if (o.body) {
         o.body.setAllowGravity(false);
         o.body.setImmovable(true);
+        o.body.moves = opts?.moves === true;
         o.body.setVelocity(0, 0);
       }
       if (opts?.visible === false) o.setVisible(false);
@@ -280,18 +304,19 @@
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
 
-        // Render static tiles (best-effort; TSX may be incomplete)
+        // Render static tiles (skip interactive tiles that we spawn separately)
         for (const layer of tileLayers) {
           const data = layer.data;
           const layerName = String(layer.name || "").toLowerCase();
           for (let idx = 0; idx < mapW * mapH; idx++) {
-            const gid = data[idx] & 0x1fffffff;
-            if (!gid) continue;
-            // interactive tiles will be spawned separately
-            if (layerName === "one" && (gid === G.bomb1 || gid === G.bomb2 || gid === G.sword1 || gid === G.sword2)) continue;
-            if (layerName === "three" && (gid === G.vanish1 || gid === G.move || gid === G.move1 || gid === G.bluewin || gid === G.redwin)) continue;
-
             const tile = resolveTileFromGid(data[idx]);
+            if (!tile) continue;
+            const p = tile.props || {};
+            const isInteractiveOne = layerName === "one" && (p.bomb1 === true || p.bomb2 === true || p.sword1 === true || p.sword2 === true);
+            const isInteractiveThree =
+              layerName === "three" &&
+              (p.vanish1 === true || p.move === true || p.move1 === true || p.bluewin === true || p.redwin === true);
+            if (isInteractiveOne || isInteractiveThree) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             const cx = col * tileW + tileW / 2;
@@ -309,12 +334,12 @@
 
         // Groups
         this.solids = this.physics.add.staticGroup();
-        this.deadly = this.physics.add.staticGroup(); // death tiles created on touch1
+        this.deadly = this.physics.add.staticGroup(); // deadly areas (trap tiles + touch1 replacement)
         this.vanishGroup = this.physics.add.staticGroup();
         this.moveGroup = this.physics.add.group();
         this.move1Group = this.physics.add.group();
 
-        // Spawn interactive tiles by gid
+        // Spawn interactive tiles by TILE PROPERTIES
         const layerOne = tileLayers.find((l) => String(l.name || "").toLowerCase() === "one");
         const layerThree = tileLayers.find((l) => String(l.name || "").toLowerCase() === "three");
 
@@ -334,58 +359,69 @@
 
         if (layerOne) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
-            const gid = (layerOne.data[idx] & 0x1fffffff) || 0;
-            if (!gid) continue;
+            const tile = resolveTileFromGid(layerOne.data[idx]);
+            if (!tile) continue;
+            const p = tile.props || {};
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
+            if (p.solid === true) addStaticRect(this.solids, cx, cy);
+            if (p.death === true) addStaticRect(this.deadly, cx, cy, tileW * 2, tileH / 2);
 
-            if (gid === G.solid1) addStaticRect(this.solids, cx, cy);
+            const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+            const imgKey = url ? imageToKey.get(url) : null;
 
-            if (gid === G.deathTrap) addStaticRect(this.deadly, cx, cy, tileW, tileH / 2);
-
-            const tile = resolveTileFromGid(layerOne.data[idx]);
-            let imgKey = null;
-            if (tile?.imageSource) {
-              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
-              imgKey = url ? imageToKey.get(url) : null;
+            if (p.bomb1 === true) {
+              bomb1Objs.push(spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("bombStroked.png"), { visible: false, active: false, depth: 40, displayW: tileW * 1.2, displayH: tileH * 1.6 }));
             }
-
-            if (gid === G.bomb1) bomb1Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
-            if (gid === G.bomb2) bomb2Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
-            if (gid === G.sword1) sword1Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
-            if (gid === G.sword2) sword2Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
+            if (p.bomb2 === true) {
+              bomb2Objs.push(spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("bombStroked.png"), { visible: false, active: false, depth: 40, displayW: tileW * 1.2, displayH: tileH * 1.6 }));
+            }
+            if (p.sword1 === true) {
+              sword1Objs.push(spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("swordStroked.png"), { visible: false, active: false, depth: 40, displayW: tileW * 1.6, displayH: tileH * 0.9, moves: true }));
+            }
+            if (p.sword2 === true) {
+              sword2Objs.push(spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("swordStroked.png"), { visible: false, active: false, depth: 40, displayW: tileW * 1.6, displayH: tileH * 0.9, moves: true }));
+            }
           }
         }
 
         if (layerThree) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
-            const gid = (layerThree.data[idx] & 0x1fffffff) || 0;
-            if (!gid) continue;
+            const tile = resolveTileFromGid(layerThree.data[idx]);
+            if (!tile) continue;
+            const p = tile.props || {};
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
+            if (p.solid === true) addStaticRect(this.solids, cx, cy);
 
-            if (gid === G.solid3 || gid === 83 || gid === 90) addStaticRect(this.solids, cx, cy);
+            const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+            const imgKey = url ? imageToKey.get(url) : null;
 
-            if (gid === G.vanish1) {
-              const b = addStaticRect(this.vanishGroup, cx, cy);
+            if (p.vanish1 === true) {
+              const b = spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("earthWall.png"), { visible: true, active: true, depth: 30, moves: false });
+              if (b.body) {
+                b.body.setAllowGravity(false);
+                b.body.setImmovable(true);
+              }
+              this.vanishGroup.add(b);
               b._spawn = { cx, cy };
             }
-            if (gid === G.move) {
-              const o = spawnTileObject(this, cx, cy, null, { visible: true, active: true, depth: 25 });
+            if (p.move === true) {
+              const o = spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("earthWall.png"), { visible: true, active: true, depth: 28, moves: true });
               o._spawn = { cx, cy };
               this.moveGroup.add(o);
             }
-            if (gid === G.move1) {
-              const o = spawnTileObject(this, cx, cy, null, { visible: true, active: true, depth: 25 });
+            if (p.move1 === true) {
+              const o = spawnTileObject(this, cx, cy, imgKey || imgKeyByFile("earthWall.png"), { visible: true, active: true, depth: 28, moves: true });
               o._spawn = { cx, cy };
               this.move1Group.add(o);
             }
-            if (gid === G.bluewin) bluewinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
-            if (gid === G.redwin) redwinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+            if (p.bluewin === true) bluewinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+            if (p.redwin === true) redwinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
           }
         }
 
@@ -448,19 +484,20 @@
           kill2();
         });
 
-        // swords: become deadly when enabled
+        // swords: only deadly when that sword object is visible+enabled
         const swordGroup = this.physics.add.group();
         for (const s of sword1Objs.concat(sword2Objs)) swordGroup.add(s);
-        this.physics.add.overlap(this.p1, swordGroup, () => {
+        this.physics.add.overlap(this.p1, swordGroup, (_p, sword) => {
           if (this.time.now - this.lastRespawnAt1 < this.deathInvulnMs) return;
-          // only if sword is active
-          const any = swordGroup.getChildren().some((o) => o.visible && o.body?.enable);
-          if (any) kill1();
+          if (sword?.visible !== true) return;
+          if (sword?.body && sword.body.enable !== true) return;
+          kill1();
         });
-        this.physics.add.overlap(this.p2, swordGroup, () => {
+        this.physics.add.overlap(this.p2, swordGroup, (_p, sword) => {
           if (this.time.now - this.lastRespawnAt2 < this.deathInvulnMs) return;
-          const any = swordGroup.getChildren().some((o) => o.visible && o.body?.enable);
-          if (any) kill2();
+          if (sword?.visible !== true) return;
+          if (sword?.body && sword.body.enable !== true) return;
+          kill2();
         });
 
         // Win sensors
@@ -488,6 +525,9 @@
               x: o.x - dx,
               duration: ms,
               ease: "Sine.easeInOut",
+              onUpdate: () => {
+                if (o?.body?.updateFromGameObject) o.body.updateFromGameObject();
+              },
             });
           }
         };
@@ -562,16 +602,30 @@
                 if (b.body) b.body.enable = false;
                 b.destroy();
               }
-              // replace with deadly tiles (rects)
+              // replace with deadly tiles (visible trap + death body)
               if (layerThree) {
                 for (let idx = 0; idx < mapW * mapH; idx++) {
-                  const gid = (layerThree.data[idx] & 0x1fffffff) || 0;
-                  if (gid !== G.vanish1) continue;
+                  const tile = resolveTileFromGid(layerThree.data[idx]);
+                  if (!tile?.props || tile.props.vanish1 !== true) continue;
                   const col = idx % mapW;
                   const row = Math.floor(idx / mapW);
                   const cx = col * tileW + tileW / 2;
                   const cy = row * tileH + tileH / 2;
-                  addStaticRect(this.deadly, cx, cy, tileW, tileH / 2);
+                  const trap = spawnTileObject(this, cx, cy, deathTileKey, {
+                    visible: true,
+                    active: true,
+                    depth: 38,
+                    displayW: tileW * 2,
+                    displayH: tileH / 2,
+                  });
+                  // keep it as a static death area
+                  if (trap.body) {
+                    trap.body.setAllowGravity(false);
+                    trap.body.setImmovable(true);
+                    trap.body.moves = false;
+                    if (trap.body.updateFromGameObject) trap.body.updateFromGameObject();
+                  }
+                  this.deadly.add(trap);
                 }
               }
             });
