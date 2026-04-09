@@ -151,8 +151,10 @@
     level3Json: "./assets/maps/singleplayer/level3/three.json",
     level4Json: "./assets/maps/singleplayer/level4.json",
     level5Json: "./assets/maps/singleplayer/level5/sinfive.json",
+    level6Json: "./assets/maps/singleplayer/level6/sinsix.json",
     raceLevel1Json: "./assets/maps/doubleplayer/level1/douone.json",
     teamLevel1Json: "./assets/maps/teamupchallenges/level1/double1.json",
+    teamLevel2Json: "./assets/maps/teamupchallenges/level2/double2.json",
     characterFront: "./assets/character/front.png",
     characterLeft: "./assets/character/left.png",
     characterRight: "./assets/character/right.png",
@@ -415,9 +417,10 @@
     for (let i = 1; i <= totalLevels; i++) {
       const btn = document.createElement("button");
       const unlocked =
-        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5)) ||
+        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6)) ||
         (state.mode === "race" && i === 1) ||
-        (state.mode !== "single" && state.mode !== "race" && i === 1);
+        (state.mode === "coop" && (i === 1 || i === 2)) ||
+        (state.mode !== "single" && state.mode !== "race" && state.mode !== "coop" && i === 1);
       btn.className = "levelCell" + (unlocked ? "" : " locked");
       btn.type = "button";
       btn.textContent = `第 ${i} 关`;
@@ -669,6 +672,14 @@
       }
       return;
     }
+    if (state.mode === "single" && levelId === 6) {
+      if (window.SinglePlayerLevels?.startLevel6) {
+        await window.SinglePlayerLevels.startLevel6({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("第六关脚本未加载。");
+      }
+      return;
+    }
 
     if (state.mode === "race" && levelId === 1) {
       if (window.DoublePlayerLevels?.startRaceLevel1) {
@@ -683,6 +694,14 @@
         await window.TeamUpLevels.startTeamLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人合作第一关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 2) {
+      if (window.TeamUpLevels?.startTeamLevel2) {
+        await window.TeamUpLevels.startTeamLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第二关脚本未加载。");
       }
       return;
     }

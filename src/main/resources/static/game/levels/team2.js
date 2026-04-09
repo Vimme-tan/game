@@ -1,0 +1,684 @@
+// Team-up Challenges Level 2 (double-player cooperation)
+// Exposes: window.TeamUpLevels.startTeamLevel2(ctx, levelId)
+(function () {
+  window.TeamUpLevels = window.TeamUpLevels || {};
+
+  window.TeamUpLevels.startTeamLevel2 = async function startTeamLevel2(ctx, levelId) {
+    const { assets, state, setLevelPlayLayout, destroyPhaser, onLevelWin } = ctx;
+
+    state.currentLevelId = levelId;
+    setLevelPlayLayout(true);
+    destroyPhaser();
+
+    if (window.location.protocol === "file:") {
+      alert("Please run via http://localhost instead of file:// to load local JSON resources.");
+      return;
+    }
+
+    const mapUrl = new URL(assets.teamLevel2Json, window.location.href).toString();
+    let mapData;
+    try {
+      const r = await fetch(mapUrl, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      mapData = await r.json();
+    } catch (e) {
+      alert(`Team level 2 map load failed: ${e?.message || String(e)}`);
+      return;
+    }
+
+    const mapW = Number(mapData.width || 1);
+    const mapH = Number(mapData.height || 1);
+    const tileW = Number(mapData.tilewidth || 64);
+    const tileH = Number(mapData.tileheight || 64);
+    const worldW = mapW * tileW;
+    const worldH = mapH * tileH;
+    const mapBase = new URL(mapUrl);
+
+    function propTrue(props, key) {
+      if (!Array.isArray(props)) return false;
+      const k = String(key || "").toLowerCase();
+      return props.some((p) => {
+        const name = String(p?.name || "").toLowerCase();
+        if (name !== k) return false;
+        return p?.value === true || p?.value === 1 || String(p?.value || "").toLowerCase() === "true";
+      });
+    }
+
+    function resolveTilesetImageUrl(imageSource, baseUrl) {
+      const candidates = [];
+      if (typeof imageSource !== "string" || !imageSource) return null;
+      const baseName = imageSource.split("/").pop();
+      const legacyNameMap = {
+        "1.png": "blue.png",
+        "2.png": "earthWall.png",
+        "3.png": "earthWall2.png",
+        "4.png": "doorRedStroked.png",
+        "5.png": "trap.png",
+      };
+      const mapped = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
+      if (mapped) {
+        candidates.push(`../../map/${mapped}`);
+        candidates.push(`../map/${mapped}`);
+        candidates.push(`map/${mapped}`);
+        candidates.push(`./map/${mapped}`);
+      }
+      if (baseName) {
+        candidates.push(`../../map/${baseName}`);
+        candidates.push(`../map/${baseName}`);
+        candidates.push(`map/${baseName}`);
+        candidates.push(`./map/${baseName}`);
+      }
+      // Also handle absolute Windows paths in TSX like F:/.../sticker-knight/map/xxx.png
+      const stickerIdx = imageSource.toLowerCase().lastIndexOf("sticker-knight/map/");
+      if (stickerIdx >= 0) {
+        const tail = imageSource.slice(stickerIdx + "sticker-knight/map/".length);
+        candidates.push(`../../map/${tail}`);
+        candidates.push(`../map/${tail}`);
+      }
+      candidates.push(imageSource);
+      for (const c of candidates) {
+        try {
+          return new URL(c, baseUrl).toString();
+        } catch {}
+      }
+      return null;
+    }
+
+    async function fetchTsxText(tsxSource, baseUrl) {
+      const tsxUrl = new URL(tsxSource, baseUrl).toString();
+      const baseName = String(tsxSource || "").split("/").pop();
+      const fallback = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
+      const candidates = [tsxUrl, fallback].filter(Boolean);
+      let lastErr = null;
+      for (const cand of candidates) {
+        try {
+          const r = await fetch(cand, { credentials: "same-origin" });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return await r.text();
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
+    }
+
+    function parseTsx(tsxText) {
+      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
+      const root = xml.querySelector("tileset");
+      if (!root) throw new Error("invalid tsx format");
+      const name = root.getAttribute("name") || "tileset";
+      const tiles = {};
+      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
+        const id = Number(tileEl.getAttribute("id") || "0");
+        const imgEl = tileEl.querySelector("image");
+        const imageSource = imgEl?.getAttribute("source") || null;
+        const props = {};
+        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
+          const propName = String(p.getAttribute("name") || "");
+          if (!propName) continue;
+          const type = String(p.getAttribute("type") || "").toLowerCase();
+          const value = String(p.getAttribute("value") || "").toLowerCase();
+          props[propName] = type === "bool" ? value === "true" || value === "1" : value;
+        }
+        tiles[id] = { id, imageSource, props };
+      }
+      return { name, tiles };
+    }
+
+    const tilesetInfos = [];
+    for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
+      const firstgid = Number(ts.firstgid || 1);
+      const source = ts.source;
+      if (!source) continue;
+      try {
+        const tsxText = await fetchTsxText(source, mapBase);
+        const parsed = parseTsx(tsxText);
+        tilesetInfos.push({ firstgid, source, ...parsed });
+      } catch (e) {
+        console.warn("[team2] tileset load failed", source, e?.message || e);
+      }
+    }
+    tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
+
+    function resolveTileFromGid(gid) {
+      const clean = gid & 0x1fffffff;
+      if (!clean) return null;
+      let chosen = null;
+      for (let i = 0; i < tilesetInfos.length; i++) {
+        const ts = tilesetInfos[i];
+        const nextFirst = i + 1 < tilesetInfos.length ? tilesetInfos[i + 1].firstgid : Infinity;
+        if (clean >= ts.firstgid && clean < nextFirst) {
+          chosen = ts;
+          break;
+        }
+      }
+      if (!chosen) return null;
+      const tileId = clean - chosen.firstgid;
+      const tile = chosen.tiles[tileId];
+      if (!tile) return { tileset: chosen, tileId, imageSource: null, props: {} };
+      return { ...tile, tileset: chosen, tileId };
+    }
+
+    const allLayers = Array.isArray(mapData.layers) ? mapData.layers : [];
+    const tileLayers = allLayers.filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
+    const opLayer = allLayers.find((l) => l && l.type === "objectgroup" && String(l.name || "").toLowerCase() === "op");
+    const opObjects = Array.isArray(opLayer?.objects) ? opLayer.objects : [];
+
+    const born1Obj = opObjects.find((o) => propTrue(o.properties, "born1") || propTrue(o.properties, "bron1")) || null;
+    const born2Obj = opObjects.find((o) => propTrue(o.properties, "born2") || propTrue(o.properties, "bron2")) || null;
+    const touchObj = (n) => opObjects.find((o) => propTrue(o.properties, `touch${n}`) || String(o.name || "").toLowerCase() === `touch${n}`) || null;
+
+    const t1 = touchObj(1);
+    const t2 = touchObj(2);
+    const t3 = touchObj(3);
+    const t4 = touchObj(4);
+    const t5 = touchObj(5);
+    const t6 = touchObj(6);
+    const t7 = touchObj(7);
+    const t8 = touchObj(8);
+
+    function toSpawn(o, fallback) {
+      if (!o) return fallback;
+      return {
+        x: o.x + (o.width || tileW) / 2,
+        y: o.y - Math.max(6, Math.min(tileH * 0.6, (o.height || tileH) * 0.6)),
+      };
+    }
+
+    const imageToKey = new Map();
+    for (const ts of tilesetInfos) {
+      for (const idStr of Object.keys(ts.tiles || {})) {
+        const id = Number(idStr);
+        const t = ts.tiles[id];
+        if (!t?.imageSource) continue;
+        const url = resolveTilesetImageUrl(t.imageSource, mapBase);
+        if (!url) continue;
+        if (!imageToKey.has(url)) imageToKey.set(url, `tile_${ts.name}_${id}`);
+      }
+    }
+
+    // --- Level2-specific gid mapping fallback (because some TSX are empty) ---
+    // These values come from scanning `double2.json` usage.
+    const G = {
+      deathTrap: 58,
+      sword1: 120,
+      sword2: 184,
+      bomb1: 74,
+      bomb2: 138,
+      solid1: 122,
+      solid3: 19,
+      bluewin: 82,
+      redwin: 81,
+      vanish1: 211,
+      move: 275,
+      move1: 147,
+    };
+
+    function spawnTileObject(scene, x, y, imgKey, opts) {
+      const o = imgKey ? scene.physics.add.image(x, y, imgKey) : scene.add.rectangle(x, y, tileW, tileH, 0xff00ff, 0.25);
+      if (!imgKey) scene.physics.add.existing(o);
+      o.setDepth?.(opts?.depth ?? 10);
+      o.setDisplaySize?.(tileW, tileH);
+      if (o.body) {
+        o.body.setAllowGravity(false);
+        o.body.setImmovable(true);
+        o.body.setVelocity(0, 0);
+      }
+      if (opts?.visible === false) o.setVisible(false);
+      if (opts?.active === false && o.body) o.body.enable = false;
+      return o;
+    }
+
+    function makeSensor(scene, obj) {
+      if (!obj) return null;
+      const x = Number(obj.x || 0);
+      const y = Number(obj.y || 0);
+      const w = Number(obj.width || tileW);
+      const h = Number(obj.height || tileH);
+      const s = scene.add.rectangle(x + w / 2, y + h / 2, w, h, 0x00ffff, 0);
+      scene.physics.add.existing(s, true);
+      return s;
+    }
+
+    function codeToPhaserKeyCode(code) {
+      if (typeof code !== "string" || !code) return null;
+      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
+      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
+      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
+      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
+      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
+      if (code.startsWith("Key") && code.length === 4) {
+        const ch = code.slice(3);
+        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
+        return typeof kc === "number" ? kc : null;
+      }
+      return null;
+    }
+
+    const scene = {
+      preload: function () {
+        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
+        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
+        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
+      },
+      create: function () {
+        state.levelScene = this;
+        this.finished = false;
+        this.dead1 = false;
+        this.dead2 = false;
+        this.lastRespawnAt1 = -1e9;
+        this.lastRespawnAt2 = -1e9;
+        this.deathInvulnMs = 700;
+        this.triggered = new Set();
+
+        this.physics.world.setBounds(0, 0, worldW, worldH);
+        this.physics.world.gravity.y = 900;
+
+        this.cameras.main.setBounds(0, 0, worldW, worldH);
+        const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
+        this.cameras.main.setZoom(Math.min(1, zoom));
+        this.cameras.main.centerOn(worldW / 2, worldH / 2);
+
+        // Render static tiles (best-effort; TSX may be incomplete)
+        for (const layer of tileLayers) {
+          const data = layer.data;
+          const layerName = String(layer.name || "").toLowerCase();
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const gid = data[idx] & 0x1fffffff;
+            if (!gid) continue;
+            // interactive tiles will be spawned separately
+            if (layerName === "one" && (gid === G.bomb1 || gid === G.bomb2 || gid === G.sword1 || gid === G.sword2)) continue;
+            if (layerName === "three" && (gid === G.vanish1 || gid === G.move || gid === G.move1 || gid === G.bluewin || gid === G.redwin)) continue;
+
+            const tile = resolveTileFromGid(data[idx]);
+            const col = idx % mapW;
+            const row = Math.floor(idx / mapW);
+            const cx = col * tileW + tileW / 2;
+            const cy = row * tileH + tileH / 2;
+            let key = null;
+            if (tile?.imageSource) {
+              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+              key = url ? imageToKey.get(url) : null;
+            }
+            if (!key) continue;
+            const img = this.add.image(cx - tileW / 2, cy + tileH / 2, key).setOrigin(0, 1);
+            img.setDisplaySize(tileW, tileH);
+          }
+        }
+
+        // Groups
+        this.solids = this.physics.add.staticGroup();
+        this.deadly = this.physics.add.staticGroup(); // death tiles created on touch1
+        this.vanishGroup = this.physics.add.staticGroup();
+        this.moveGroup = this.physics.add.group();
+        this.move1Group = this.physics.add.group();
+
+        // Spawn interactive tiles by gid
+        const layerOne = tileLayers.find((l) => String(l.name || "").toLowerCase() === "one");
+        const layerThree = tileLayers.find((l) => String(l.name || "").toLowerCase() === "three");
+
+        const bomb1Objs = [];
+        const bomb2Objs = [];
+        const sword1Objs = [];
+        const sword2Objs = [];
+        const bluewinRects = [];
+        const redwinRects = [];
+
+        const addStaticRect = (group, x, y, w = tileW, h = tileH) => {
+          const r = this.add.rectangle(x, y, w, h, 0x000000, 0);
+          this.physics.add.existing(r, true);
+          group.add(r);
+          return r;
+        };
+
+        if (layerOne) {
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const gid = (layerOne.data[idx] & 0x1fffffff) || 0;
+            if (!gid) continue;
+            const col = idx % mapW;
+            const row = Math.floor(idx / mapW);
+            const cx = col * tileW + tileW / 2;
+            const cy = row * tileH + tileH / 2;
+
+            if (gid === G.solid1) addStaticRect(this.solids, cx, cy);
+
+            if (gid === G.deathTrap) addStaticRect(this.deadly, cx, cy, tileW, tileH / 2);
+
+            const tile = resolveTileFromGid(layerOne.data[idx]);
+            let imgKey = null;
+            if (tile?.imageSource) {
+              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+              imgKey = url ? imageToKey.get(url) : null;
+            }
+
+            if (gid === G.bomb1) bomb1Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
+            if (gid === G.bomb2) bomb2Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
+            if (gid === G.sword1) sword1Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
+            if (gid === G.sword2) sword2Objs.push(spawnTileObject(this, cx, cy, imgKey, { visible: false, active: false, depth: 35 }));
+          }
+        }
+
+        if (layerThree) {
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const gid = (layerThree.data[idx] & 0x1fffffff) || 0;
+            if (!gid) continue;
+            const col = idx % mapW;
+            const row = Math.floor(idx / mapW);
+            const cx = col * tileW + tileW / 2;
+            const cy = row * tileH + tileH / 2;
+
+            if (gid === G.solid3 || gid === 83 || gid === 90) addStaticRect(this.solids, cx, cy);
+
+            if (gid === G.vanish1) {
+              const b = addStaticRect(this.vanishGroup, cx, cy);
+              b._spawn = { cx, cy };
+            }
+            if (gid === G.move) {
+              const o = spawnTileObject(this, cx, cy, null, { visible: true, active: true, depth: 25 });
+              o._spawn = { cx, cy };
+              this.moveGroup.add(o);
+            }
+            if (gid === G.move1) {
+              const o = spawnTileObject(this, cx, cy, null, { visible: true, active: true, depth: 25 });
+              o._spawn = { cx, cy };
+              this.move1Group.add(o);
+            }
+            if (gid === G.bluewin) bluewinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+            if (gid === G.redwin) redwinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+          }
+        }
+
+        // Players
+        const p1Spawn = toSpawn(born1Obj, { x: tileW * 2, y: tileH * 2 });
+        const p2Spawn = toSpawn(born2Obj, { x: tileW * 3, y: tileH * 2 });
+        this.spawn1 = { ...p1Spawn };
+        this.spawn2 = { ...p2Spawn };
+
+        const mkPlayer = (x, y) => {
+          const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
+          p.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+          p.body.setCollideWorldBounds(true);
+          p.body.setSize(p.displayWidth, p.displayHeight, false);
+          p.body.setDragX(900);
+          p.body.setMaxVelocity(260, 900);
+          return p;
+        };
+        this.p1 = mkPlayer(this.spawn1.x, this.spawn1.y);
+        this.p2 = mkPlayer(this.spawn2.x, this.spawn2.y);
+
+        this.physics.add.collider(this.p1, this.solids);
+        this.physics.add.collider(this.p2, this.solids);
+        this.physics.add.collider(this.p1, this.vanishGroup);
+        this.physics.add.collider(this.p2, this.vanishGroup);
+        this.physics.add.collider(this.p1, this.moveGroup);
+        this.physics.add.collider(this.p2, this.moveGroup);
+        this.physics.add.collider(this.p1, this.move1Group);
+        this.physics.add.collider(this.p2, this.move1Group);
+
+        const kill1 = () => {
+          if (this.dead1 || this.finished) return;
+          this.dead1 = true;
+          this.p1.body.setVelocity(0, 0);
+          this.time.delayedCall(520, () => {
+            this.dead1 = false;
+            this.lastRespawnAt1 = this.time.now;
+            this.p1.setPosition(this.spawn1.x, this.spawn1.y);
+            this.p1.body.setVelocity(0, 0);
+          });
+        };
+        const kill2 = () => {
+          if (this.dead2 || this.finished) return;
+          this.dead2 = true;
+          this.p2.body.setVelocity(0, 0);
+          this.time.delayedCall(520, () => {
+            this.dead2 = false;
+            this.lastRespawnAt2 = this.time.now;
+            this.p2.setPosition(this.spawn2.x, this.spawn2.y);
+            this.p2.body.setVelocity(0, 0);
+          });
+        };
+
+        this.physics.add.overlap(this.p1, this.deadly, () => {
+          if (this.time.now - this.lastRespawnAt1 < this.deathInvulnMs) return;
+          kill1();
+        });
+        this.physics.add.overlap(this.p2, this.deadly, () => {
+          if (this.time.now - this.lastRespawnAt2 < this.deathInvulnMs) return;
+          kill2();
+        });
+
+        // swords: become deadly when enabled
+        const swordGroup = this.physics.add.group();
+        for (const s of sword1Objs.concat(sword2Objs)) swordGroup.add(s);
+        this.physics.add.overlap(this.p1, swordGroup, () => {
+          if (this.time.now - this.lastRespawnAt1 < this.deathInvulnMs) return;
+          // only if sword is active
+          const any = swordGroup.getChildren().some((o) => o.visible && o.body?.enable);
+          if (any) kill1();
+        });
+        this.physics.add.overlap(this.p2, swordGroup, () => {
+          if (this.time.now - this.lastRespawnAt2 < this.deathInvulnMs) return;
+          const any = swordGroup.getChildren().some((o) => o.visible && o.body?.enable);
+          if (any) kill2();
+        });
+
+        // Win sensors
+        this.blueWins = this.physics.add.staticGroup();
+        this.redWins = this.physics.add.staticGroup();
+        for (const r of bluewinRects) addStaticRect(this.blueWins, r.cx, r.cy, r.w, r.h);
+        for (const r of redwinRects) addStaticRect(this.redWins, r.cx, r.cy, r.w, r.h);
+
+        const activateObj = (o) => {
+          o.setVisible(true);
+          if (o.body) o.body.enable = true;
+        };
+        const oneShot = (key, fn) => {
+          if (this.triggered.has(key)) return;
+          this.triggered.add(key);
+          fn();
+        };
+
+        const moveLeft = (targets, tiles = 6, ms = 800) => {
+          const dx = tileW * tiles;
+          for (const o of targets) {
+            if (!o) continue;
+            this.tweens.add({
+              targets: o,
+              x: o.x - dx,
+              duration: ms,
+              ease: "Sine.easeInOut",
+            });
+          }
+        };
+
+        // Sensors
+        const s1 = makeSensor(this, t1);
+        const s2 = makeSensor(this, t2);
+        const s3 = makeSensor(this, t3);
+        const s4 = makeSensor(this, t4);
+        const s5 = makeSensor(this, t5);
+        const s6 = makeSensor(this, t6);
+        const s7 = makeSensor(this, t7);
+        const s8 = makeSensor(this, t8);
+
+        if (s2) {
+          this.physics.add.overlap(this.p1, s2, () => oneShot("touch2_p1", () => {
+            bomb1Objs.forEach(activateObj);
+            kill1();
+          }));
+          this.physics.add.overlap(this.p2, s2, () => oneShot("touch2_p2", () => {
+            bomb1Objs.forEach(activateObj);
+            kill2();
+          }));
+        }
+        if (s3) {
+          this.physics.add.overlap(this.p1, s3, () => oneShot("touch3_p1", () => {
+            bomb2Objs.forEach(activateObj);
+            kill1();
+          }));
+          this.physics.add.overlap(this.p2, s3, () => oneShot("touch3_p2", () => {
+            bomb2Objs.forEach(activateObj);
+            kill2();
+          }));
+        }
+        if (s6) {
+          this.physics.add.overlap(this.p1, s6, () => oneShot("touch6", () => {
+            sword2Objs.forEach(activateObj);
+            moveLeft(sword2Objs, 6, 850);
+          }));
+          this.physics.add.overlap(this.p2, s6, () => oneShot("touch6", () => {
+            sword2Objs.forEach(activateObj);
+            moveLeft(sword2Objs, 6, 850);
+          }));
+        }
+        const touchMove = () => oneShot("touch4or8", () => moveLeft(this.moveGroup.getChildren(), 6, 900));
+        if (s4) {
+          this.physics.add.overlap(this.p1, s4, touchMove);
+          this.physics.add.overlap(this.p2, s4, touchMove);
+        }
+        if (s8) {
+          this.physics.add.overlap(this.p1, s8, touchMove);
+          this.physics.add.overlap(this.p2, s8, touchMove);
+        }
+        const touchMove1 = () => oneShot("touch5or7", () => {
+          moveLeft(this.move1Group.getChildren(), 6, 900);
+          sword1Objs.forEach(activateObj);
+          moveLeft(sword1Objs, 6, 900);
+        });
+        if (s5) {
+          this.physics.add.overlap(this.p1, s5, touchMove1);
+          this.physics.add.overlap(this.p2, s5, touchMove1);
+        }
+        if (s7) {
+          this.physics.add.overlap(this.p1, s7, touchMove1);
+          this.physics.add.overlap(this.p2, s7, touchMove1);
+        }
+        if (s1) {
+          const doTouch1 = () =>
+            oneShot("touch1", () => {
+              // vanish1 removed immediately so players drop
+              for (const b of this.vanishGroup.getChildren()) {
+                if (b.body) b.body.enable = false;
+                b.destroy();
+              }
+              // replace with deadly tiles (rects)
+              if (layerThree) {
+                for (let idx = 0; idx < mapW * mapH; idx++) {
+                  const gid = (layerThree.data[idx] & 0x1fffffff) || 0;
+                  if (gid !== G.vanish1) continue;
+                  const col = idx % mapW;
+                  const row = Math.floor(idx / mapW);
+                  const cx = col * tileW + tileW / 2;
+                  const cy = row * tileH + tileH / 2;
+                  addStaticRect(this.deadly, cx, cy, tileW, tileH / 2);
+                }
+              }
+            });
+          this.physics.add.overlap(this.p1, s1, doTouch1);
+          this.physics.add.overlap(this.p2, s1, doTouch1);
+        }
+
+        // Controls
+        const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
+          p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
+          p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
+        };
+        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
+        const p2Left = codeToPhaserKeyCode(kb.p2.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
+        const p2Right = codeToPhaserKeyCode(kb.p2.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
+        const p2Jump = codeToPhaserKeyCode(kb.p2.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
+        this.p2Keys = this.input.keyboard.addKeys({ left: p2Left, right: p2Right, jump: p2Jump });
+
+        const pSpeed = 300;
+        const jumpV = -920;
+
+        this._stepPlayer = (p, keys, isP1) => {
+          if (!p?.body) return;
+          const mobile = isP1 && window.__PT_isMobileControl?.() === true;
+          const left = keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
+          const right = keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
+          if (left) p.setVelocityX(-pSpeed);
+          else if (right) p.setVelocityX(pSpeed);
+          else p.setVelocityX(0);
+          if (left) p.setTexture("char_left");
+          else if (right) p.setTexture("char_right");
+          else p.setTexture("char_front");
+          const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
+          if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(jumpV);
+        };
+
+        // Victory check helper
+        this._inGroup = (p, group) => {
+          const pb = p.getBounds();
+          for (const s of group.getChildren()) {
+            const sb = s.getBounds();
+            if (!(pb.right < sb.left || pb.left > sb.right || pb.bottom < sb.top || pb.top > sb.bottom)) return true;
+          }
+          return false;
+        };
+      },
+      update: function () {
+        if (!this.p1?.body || !this.p2?.body) return;
+        if (this.finished) return;
+
+        // touching game viewport boundary => death (per-player)
+        const vb = this.cameras.main.worldView;
+        const b1 = this.p1.getBounds();
+        const b2 = this.p2.getBounds();
+        const hitVb = (b) => b.bottom >= vb.bottom - 2 || b.top <= vb.top + 2 || b.left <= vb.left + 2 || b.right >= vb.right - 2;
+        if (!this.dead1 && hitVb(b1)) {
+          this.dead1 = true;
+          this.p1.body.setVelocity(0, 0);
+          this.time.delayedCall(520, () => {
+            this.dead1 = false;
+            this.lastRespawnAt1 = this.time.now;
+            this.p1.setPosition(this.spawn1.x, this.spawn1.y);
+            this.p1.body.setVelocity(0, 0);
+          });
+        }
+        if (!this.dead2 && hitVb(b2)) {
+          this.dead2 = true;
+          this.p2.body.setVelocity(0, 0);
+          this.time.delayedCall(520, () => {
+            this.dead2 = false;
+            this.lastRespawnAt2 = this.time.now;
+            this.p2.setPosition(this.spawn2.x, this.spawn2.y);
+            this.p2.body.setVelocity(0, 0);
+          });
+        }
+
+        if (!this.dead1) this._stepPlayer(this.p1, this.p1Keys, true);
+        else this.p1.setVelocityX(0);
+        if (!this.dead2) this._stepPlayer(this.p2, this.p2Keys, false);
+        else this.p2.setVelocityX(0);
+
+        const p1InBlue = this._inGroup(this.p1, this.blueWins);
+        const p2InRed = this._inGroup(this.p2, this.redWins);
+        if (p1InBlue && p2InRed) {
+          this.finished = true;
+          if (typeof onLevelWin === "function") onLevelWin(levelId);
+        }
+      },
+    };
+
+    const vp = window.__PT_getGameViewport ? window.__PT_getGameViewport() : {
+      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
+      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
+    };
+
+    state.phaser = new Phaser.Game({
+      type: Phaser.AUTO,
+      parent: ctx.ui.phaserMount,
+      width: vp.width,
+      height: vp.height,
+      transparent: true,
+      physics: { default: "arcade", arcade: { debug: false } },
+      scene,
+    });
+  };
+})();
+
