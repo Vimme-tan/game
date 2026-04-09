@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <map version="1.10" tiledversion="1.12.1" orientation="orthogonal" renderorder="right-down" width="40" height="25" tilewidth="64" tileheight="64" infinite="0" nextlayerid="5" nextobjectid="5">
- <tileset firstgid="1" source="one.tsx"/>
- <tileset firstgid="60" source="three.tsx"/>
+ <tileset firstgid="1" source="dung.tsx"/>
+ <tileset firstgid="60" source="fake.tsx"/>
  <layer id="1" name="background" width="40" height="25">
   <data encoding="csv">
 22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,

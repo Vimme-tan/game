@@ -34,6 +34,10 @@
 
     gameHost: $("gameHost"),
     phaserMount: $("phaserMount"),
+    mobileControls: $("mobileControls"),
+    mcLeft: $("mcLeft"),
+    mcRight: $("mcRight"),
+    mcJump: $("mcJump"),
     btnPauseLevel: $("btnPauseLevel"),
     btnExitLevel: $("btnExitLevel"),
 
@@ -56,6 +60,7 @@
     btnBindP2Right: $("btnBindP2Right"),
     btnBindP2Jump: $("btnBindP2Jump"),
     btnResetKeybinds: $("btnResetKeybinds"),
+    controlModeSelect: $("controlModeSelect"),
   };
 
   const api = {
@@ -143,10 +148,11 @@
     clickSfx: "./assets/audio/sfx/btn_click.wav",
     level1Tmx: "./assets/maps/singleplayer/level1.tmx",
     level2Json: "./assets/maps/singleplayer/level2.json",
-    level3Json: "./assets/maps/singleplayer/level3/level3.json",
+    level3Json: "./assets/maps/singleplayer/level3/three.json",
     level4Json: "./assets/maps/singleplayer/level4.json",
     level5Json: "./assets/maps/singleplayer/level5/sinfive.json",
     raceLevel1Json: "./assets/maps/doubleplayer/level1/douone.json",
+    teamLevel1Json: "./assets/maps/teamupchallenges/level1/double1.json",
     characterFront: "./assets/character/front.png",
     characterLeft: "./assets/character/left.png",
     characterRight: "./assets/character/right.png",
@@ -167,18 +173,35 @@
     _winOnNext: null,
     _winOnExit: null,
     keybinds: null,
+    controlMode: "desktop",
+    touch: { left: false, right: false, jumpPressed: false, jumpHeld: false },
   };
 
   const KEYBINDS_STORAGE_KEY = "pt_keybinds_v1";
+  const CONTROL_MODE_STORAGE_KEY = "pt_control_mode_v1";
   const DEFAULT_KEYBINDS = {
-    p1: { left: "ArrowLeft", right: "ArrowRight", jump: "Space" },
+    p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
     p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
   };
+  function cloneKeybinds(src) {
+    return {
+      p1: {
+        left: String(src?.p1?.left || DEFAULT_KEYBINDS.p1.left),
+        right: String(src?.p1?.right || DEFAULT_KEYBINDS.p1.right),
+        jump: String(src?.p1?.jump || DEFAULT_KEYBINDS.p1.jump),
+      },
+      p2: {
+        left: String(src?.p2?.left || DEFAULT_KEYBINDS.p2.left),
+        right: String(src?.p2?.right || DEFAULT_KEYBINDS.p2.right),
+        jump: String(src?.p2?.jump || DEFAULT_KEYBINDS.p2.jump),
+      },
+    };
+  }
 
   function loadKeybinds() {
     try {
       const raw = localStorage.getItem(KEYBINDS_STORAGE_KEY);
-      if (!raw) return structuredClone(DEFAULT_KEYBINDS);
+      if (!raw) return cloneKeybinds(DEFAULT_KEYBINDS);
       const obj = JSON.parse(raw);
       const pick = (v, fallback) => (typeof v === "string" && v.length ? v : fallback);
       return {
@@ -194,7 +217,7 @@
         },
       };
     } catch {
-      return structuredClone(DEFAULT_KEYBINDS);
+      return cloneKeybinds(DEFAULT_KEYBINDS);
     }
   }
 
@@ -202,6 +225,76 @@
     try {
       localStorage.setItem(KEYBINDS_STORAGE_KEY, JSON.stringify(keybinds));
     } catch {}
+  }
+
+  function loadControlMode() {
+    try {
+      const v = String(localStorage.getItem(CONTROL_MODE_STORAGE_KEY) || "desktop").toLowerCase();
+      return v === "mobile" ? "mobile" : "desktop";
+    } catch {
+      return "desktop";
+    }
+  }
+
+  function saveControlMode(mode) {
+    try {
+      localStorage.setItem(CONTROL_MODE_STORAGE_KEY, mode === "mobile" ? "mobile" : "desktop");
+    } catch {}
+  }
+
+  function syncControlModeUI() {
+    if (ui.controlModeSelect) ui.controlModeSelect.value = state.controlMode === "mobile" ? "mobile" : "desktop";
+  }
+
+  function resetTouchState() {
+    state.touch.left = false;
+    state.touch.right = false;
+    state.touch.jumpHeld = false;
+    state.touch.jumpPressed = false;
+  }
+
+  function setupMobileButtons() {
+    if (!ui.mcLeft || !ui.mcRight || !ui.mcJump) return;
+    const bindHold = (el, down, up) => {
+      el.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        down();
+      });
+      el.addEventListener("pointerup", (e) => {
+        e.preventDefault();
+        up();
+      });
+      el.addEventListener("pointercancel", up);
+      el.addEventListener("pointerleave", up);
+    };
+    bindHold(
+      ui.mcLeft,
+      () => {
+        state.touch.left = true;
+      },
+      () => {
+        state.touch.left = false;
+      }
+    );
+    bindHold(
+      ui.mcRight,
+      () => {
+        state.touch.right = true;
+      },
+      () => {
+        state.touch.right = false;
+      }
+    );
+    bindHold(
+      ui.mcJump,
+      () => {
+        if (!state.touch.jumpHeld) state.touch.jumpPressed = true;
+        state.touch.jumpHeld = true;
+      },
+      () => {
+        state.touch.jumpHeld = false;
+      }
+    );
   }
 
   function syncKeybindsUI() {
@@ -282,7 +375,33 @@
     ui.panelLevels.classList.toggle("isPlaying", !!isPlaying);
     const toolbar = ui.btnPauseLevel?.parentElement;
     if (toolbar) toolbar.style.display = isPlaying ? "flex" : "none";
+    // Keep mobile controls visible during level play only.
+    const showMobile = Boolean(isPlaying) && state.controlMode === "mobile";
+    if (ui.mobileControls) ui.mobileControls.classList.toggle("active", showMobile);
+    if (!showMobile) resetTouchState();
   }
+
+  window.__PT_getGameViewport = function __PT_getGameViewport() {
+    const mount = ui.phaserMount;
+    const w = Math.max(720, Math.floor(mount?.clientWidth || window.innerWidth - 96));
+    const h = Math.max(520, Math.floor(Math.min(window.innerHeight * 0.76, 860)));
+    return { width: w, height: h };
+  };
+  window.__PT_isMobileControl = function __PT_isMobileControl() {
+    return state.controlMode === "mobile";
+  };
+  window.__PT_touchDown = function __PT_touchDown(name) {
+    return !!state.touch?.[name];
+  };
+  window.__PT_consumeTouchJump = function __PT_consumeTouchJump() {
+    const v = !!state.touch.jumpPressed;
+    state.touch.jumpPressed = false;
+    return v;
+  };
+  window.__PT_getKeybinds = function __PT_getKeybinds() {
+    if (!state.keybinds) state.keybinds = loadKeybinds();
+    return state.keybinds;
+  };
 
   async function refreshMe() {
     state.me = await api.me();
@@ -326,6 +445,8 @@
     ui.phaserMount.innerHTML = "";
     state.levelScene = null;
     state.levelPaused = false;
+    resetTouchState();
+    if (ui.mobileControls) ui.mobileControls.classList.remove("active");
   }
 
   function hideWinDialog() {
@@ -483,6 +604,25 @@
           showPanel("menu");
         },
       });
+      return;
+    }
+    if (mode === "coop") {
+      showWinDialog({
+        title: extra.title || "合作完成",
+        message: extra.message || `第 ${levelId} 关完成。`,
+        nextText: "再来一局",
+        exitText: "退出",
+        onNext: async () => {
+          hideWinDialog();
+          await startGame(levelId);
+        },
+        onExit: () => {
+          hideWinDialog();
+          destroyPhaser();
+          setLevelPlayLayout(false);
+          showPanel("menu");
+        },
+      });
     }
   }
 
@@ -535,6 +675,14 @@
         await window.DoublePlayerLevels.startRaceLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人竞速第一关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 1) {
+      if (window.TeamUpLevels?.startTeamLevel1) {
+        await window.TeamUpLevels.startTeamLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第一关脚本未加载。");
       }
       return;
     }
@@ -637,7 +785,7 @@
       parent: ui.phaserMount,
       width: widthPx,
       height: heightPx,
-      backgroundColor: "#0b1220",
+      transparent: true,
       scene,
     });
   }
@@ -1279,7 +1427,7 @@
       parent: ui.phaserMount,
       width: canvasW,
       height: canvasH,
-      backgroundColor: "#0b1220",
+      transparent: true,
       physics: { default: "arcade", arcade: { debug: false } },
       scene,
     });
@@ -1595,7 +1743,7 @@
       parent: ui.phaserMount,
       width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
       height: Math.min(900, Math.max(650, window.innerHeight - 200)),
-      backgroundColor: "#0b1220",
+      transparent: true,
       physics: { default: "arcade", arcade: { debug: false } },
       scene,
     });
@@ -2121,7 +2269,7 @@
       parent: ui.phaserMount,
       width: Math.min(1080, Math.max(640, window.innerWidth - 120)),
       height: Math.min(720, Math.max(420, window.innerHeight - 180)),
-      backgroundColor: "#0b1220",
+      transparent: true,
       physics: { default: "arcade", arcade: { debug: false } },
       scene,
     });
@@ -2241,7 +2389,9 @@
     ui.volumeValue.textContent = String(state.volume);
     applyVolumeToMedia();
     state.keybinds = loadKeybinds();
+    state.controlMode = loadControlMode();
     syncKeybindsUI();
+    syncControlModeUI();
     renderLevelsForMode();
   }
 
@@ -2249,6 +2399,7 @@
     initLandingButtons();
     initAppNav();
     initMedia();
+    setupMobileButtons();
     document.addEventListener("pointerdown", unlockAudio);
     document.addEventListener("keydown", unlockAudio);
     debugLog("run_ui_layout", "H1_bg_ratio", "game.js:init", "client_boot", {
@@ -2275,9 +2426,15 @@
     if (ui.btnBindP2Right) ui.btnBindP2Right.addEventListener("click", () => beginBindKey("玩家2-右", (code) => (state.keybinds.p2.right = code)));
     if (ui.btnBindP2Jump) ui.btnBindP2Jump.addEventListener("click", () => beginBindKey("玩家2-跳", (code) => (state.keybinds.p2.jump = code)));
     if (ui.btnResetKeybinds) ui.btnResetKeybinds.addEventListener("click", () => {
-      state.keybinds = structuredClone(DEFAULT_KEYBINDS);
+      state.keybinds = cloneKeybinds(DEFAULT_KEYBINDS);
       syncKeybindsUI();
       saveKeybinds(state.keybinds);
+    });
+    if (ui.controlModeSelect) ui.controlModeSelect.addEventListener("change", () => {
+      const v = String(ui.controlModeSelect.value || "desktop").toLowerCase();
+      state.controlMode = v === "mobile" ? "mobile" : "desktop";
+      saveControlMode(state.controlMode);
+      setLevelPlayLayout(!!state.phaser);
     });
 
     // If already logged in, go straight to app.

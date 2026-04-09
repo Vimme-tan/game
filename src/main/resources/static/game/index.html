@@ -197,13 +197,22 @@
             margin-top: 16px;
             border: 1px solid var(--lineSoft);
             border-radius: 12px;
-            padding: 12px;
+            padding: 8px;
             display:none;
+            background: rgba(0,0,0,.12);
+            position: relative;
         }
-        #phaserMount { display:flex; justify-content:center; align-items:center; min-height: 70vh; }
+        #phaserMount {
+            position: relative;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            width: calc(100vw - 96px);
+            height: clamp(520px, 76vh, 860px);
+            margin: 0 auto;
+        }
         #panelLevels.isPlaying #gameHost { display:block; margin-top: 18px; }
-        #panelLevels.isPlaying #phaserMount { min-height: calc(100vh - 140px); }
-        #panelLevels.isPlaying #phaserMount { align-items:flex-start; }
+        #panelLevels.isPlaying #phaserMount { align-items:center; }
         #panelLevels { position: relative; }
         #levelToolbar{
             position:absolute;
@@ -223,7 +232,40 @@
             padding: 0;
         }
         #panelLevels.isPlaying #levelToolbar{ display:flex; }
-        canvas { display:block; margin: 0 auto; }
+        canvas { display:block; margin: 0 auto; border-radius: 10px; }
+        #mobileControls{
+            position:absolute;
+            inset: 0;
+            pointer-events:none;
+            display:none;
+            z-index: 30;
+        }
+        #mobileControls.active{ display:block; }
+        .mobilePad{
+            position:absolute;
+            pointer-events:auto;
+            user-select:none;
+            -webkit-user-select:none;
+            touch-action: none;
+            width: 64px;
+            height: 64px;
+            border-radius: 999px;
+            border: 2px solid rgba(255,255,255,.9);
+            background: rgba(15,23,42,.82);
+            color:#fff;
+            font-size: 30px;
+            font-weight: 900;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+        }
+        .mobilePad:active{
+            background: rgba(59,130,246,.88);
+            border-color: rgba(255,255,255,1);
+        }
+        #mcLeft{ left: 18px; bottom: 18px; }
+        #mcRight{ left: 92px; bottom: 18px; }
+        #mcJump{ right: 20px; bottom: 18px; width: 78px; height: 78px; font-size: 24px; }
         /* Win dialog */
         #winDialogBackdrop{
             position: fixed;
@@ -307,6 +349,11 @@
         <div id="levelsGrid" class="levelsGrid"></div>
         <div id="gameHost">
             <div id="phaserMount"></div>
+            <div id="mobileControls" aria-label="手机端按键">
+                <button id="mcLeft" class="mobilePad" type="button" aria-label="向左">←</button>
+                <button id="mcRight" class="mobilePad" type="button" aria-label="向右">→</button>
+                <button id="mcJump" class="mobilePad" type="button" aria-label="跳跃">跳</button>
+            </div>
         </div>
     </section>
 
@@ -324,6 +371,16 @@
             <div class="divider"></div>
             <div style="font-weight:900; margin-bottom: 6px;">键位设置（双人竞速）</div>
             <div class="hint">点击“绑定”后按下一个键（如：A / D / W / ← / → / 空格）。</div>
+            <div class="divider"></div>
+            <div style="font-weight:900; margin-bottom: 6px;">操作方式</div>
+            <div class="row">
+                <label for="controlModeSelect" style="min-width:72px; display:flex; align-items:center;">模式</label>
+                <select id="controlModeSelect" class="keyBox" style="min-width:220px;">
+                    <option value="desktop">电脑端（键盘）</option>
+                    <option value="mobile">手机端（屏幕按键）</option>
+                </select>
+            </div>
+            <div class="hint">手机端会在关卡左下角显示左右键，右下角显示跳跃键。</div>
 
             <div style="margin-top: 10px; font-weight:800;">玩家 1</div>
             <div class="settingsGrid" aria-label="玩家1键位">
@@ -369,6 +426,7 @@
 <script src="./levels/level4.js"></script>
 <script src="./levels/level5.js"></script>
 <script src="./levels/race1.js"></script>
+<script src="./levels/team1.js"></script>
 <script src="./game.js"></script>
 </body>
 </html>

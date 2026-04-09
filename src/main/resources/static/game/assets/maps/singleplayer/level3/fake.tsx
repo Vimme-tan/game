@@ -5,6 +5,9 @@
   <image source="sticker-knight/map/doorRedStroked.png" width="160" height="192"/>
  </tile>
  <tile id="1">
+  <properties>
+   <property name="fake" type="bool" value="true"/>
+  </properties>
   <image source="sticker-knight/map/earthWall.png" width="64" height="64"/>
  </tile>
  <tile id="2">

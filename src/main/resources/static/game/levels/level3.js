@@ -1,4 +1,4 @@
-// Single-player Level 3 (JSON map, same basic rules as Level 1)
+// Single-player Level 3 (basic stable logic for map display)
 // Exposes: window.SinglePlayerLevels.startLevel3(ctx, levelId)
 (function () {
   window.SinglePlayerLevels = window.SinglePlayerLevels || {};
@@ -37,29 +37,29 @@
     function resolveTilesetImageUrl(imageSource, baseUrl) {
       const candidates = [];
       if (typeof imageSource !== "string" || !imageSource) return null;
-
       const baseName = imageSource.split("/").pop();
-      const hasSticker = imageSource.includes("sticker-knight/map/");
-      if (hasSticker && baseName) {
-        // Maps under `singleplayer/level3/` need `../../map/`.
-        candidates.push(`../../map/${baseName}`);
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
+      const legacyNameMap = {
+        "1.png": "blue.png",
+        "2.png": "earthWall.png",
+        "3.png": "earthWall2.png",
+        "4.png": "doorRedStroked.png",
+        "5.png": "trap.png",
+      };
+      const mappedName = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
+      // Prefer mapped names first to avoid returning non-existent /map/1.png style URLs.
+      if (mappedName) {
+        candidates.push(`../../map/${mappedName}`);
+        candidates.push(`../map/${mappedName}`);
+        candidates.push(`map/${mappedName}`);
+        candidates.push(`./map/${mappedName}`);
       }
-
-      // Normalize legacy exported path like "../tiled/examples/sticker-knight/map/x.png"
-      // to the runtime shared map directory.
-      if (baseName) candidates.push(`../../map/${baseName}`);
-
-      // Keep original + relative fallbacks
-      candidates.push(imageSource);
       if (baseName) {
         candidates.push(`../../map/${baseName}`);
         candidates.push(`../map/${baseName}`);
         candidates.push(`map/${baseName}`);
         candidates.push(`./map/${baseName}`);
       }
-
+      candidates.push(imageSource);
       for (const c of candidates) {
         try {
           return new URL(c, baseUrl).toString();
@@ -70,9 +70,20 @@
 
     async function fetchTsxText(tsxSource, baseUrl) {
       const tsxUrl = new URL(tsxSource, baseUrl).toString();
-      const r = await fetch(tsxUrl, { credentials: "same-origin" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
+      const baseName = String(tsxSource || "").split("/").pop();
+      const fallback = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
+      const candidates = [tsxUrl, fallback].filter(Boolean);
+      let lastErr = null;
+      for (const cand of candidates) {
+        try {
+          const r = await fetch(cand, { credentials: "same-origin" });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return await r.text();
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
     }
 
     function parseTsx(tsxText) {
@@ -91,21 +102,47 @@
           if (!propName) continue;
           const type = String(p.getAttribute("type") || "").toLowerCase();
           const value = String(p.getAttribute("value") || "").toLowerCase();
-          props[propName] = type === "bool" ? value === "true" || value === "1" : value === "true" || value === "1";
+          props[propName] = type === "bool" ? value === "true" || value === "1" : value;
+        }
+        // Compatibility with mixed TSX styles:
+        // some tilesets omit explicit solid/death on wall/trap images.
+        const srcLower = String(imageSource || "").toLowerCase();
+        if (props.fake !== true && props.solid !== true && (srcLower.endsWith("/earthwall.png") || srcLower.endsWith("/earthwall2.png"))) {
+          props.solid = true;
+        }
+        // fake tile should never be treated as a collision solid.
+        if (props.fake === true) {
+          props.solid = false;
+        }
+        if (props.death !== true && srcLower.endsWith("/trap.png")) {
+          props.death = true;
         }
         tiles[id] = { id, imageSource, props };
       }
       return { name, tiles };
     }
+    function codeToPhaserKeyCode(code) {
+      if (typeof code !== "string" || !code) return null;
+      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
+      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
+      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
+      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
+      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
+      if (code.startsWith("Key") && code.length === 4) {
+        const ch = code.slice(3);
+        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
+        return typeof kc === "number" ? kc : null;
+      }
+      return null;
+    }
 
     const tilesetInfos = [];
     for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
       const firstgid = Number(ts.firstgid || 1);
-      const source = ts.source;
-      if (!source) continue;
-      const tsxText = await fetchTsxText(source, mapBase);
+      if (!ts.source) continue;
+      const tsxText = await fetchTsxText(ts.source, mapBase);
       const parsed = parseTsx(tsxText);
-      tilesetInfos.push({ firstgid, source, ...parsed });
+      tilesetInfos.push({ firstgid, ...parsed });
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
     if (!tilesetInfos.length) {
@@ -114,80 +151,75 @@
     }
 
     function resolveTileFromGid(gid) {
-      const cleanGid = gid & 0x1fffffff;
-      if (!cleanGid) return null;
+      const clean = gid & 0x1fffffff;
+      if (!clean) return null;
       let chosen = null;
       for (let i = 0; i < tilesetInfos.length; i++) {
         const ts = tilesetInfos[i];
         const nextFirst = i + 1 < tilesetInfos.length ? tilesetInfos[i + 1].firstgid : Infinity;
-        if (cleanGid >= ts.firstgid && cleanGid < nextFirst) {
+        if (clean >= ts.firstgid && clean < nextFirst) {
           chosen = ts;
           break;
         }
       }
       if (!chosen) return null;
-      const tileId = cleanGid - chosen.firstgid;
+      const tileId = clean - chosen.firstgid;
       const tile = chosen.tiles[tileId];
       if (!tile) return null;
-      return { ...tile, tileset: chosen, tileId };
+      return { ...tile, tileId };
     }
 
     const tileLayers = (Array.isArray(mapData.layers) ? mapData.layers : []).filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
-    const objectLayers = (Array.isArray(mapData.layers) ? mapData.layers : []).filter((l) => l && l.type === "objectgroup");
+    const objects = (Array.isArray(mapData.layers) ? mapData.layers : [])
+      .filter((l) => l && l.type === "objectgroup" && Array.isArray(l.objects))
+      .flatMap((l) => l.objects || []);
     const bornObj =
-      objectLayers
-        .flatMap((l) => (Array.isArray(l.objects) ? l.objects : []))
-        .find((o) => Array.isArray(o.properties) && o.properties.some((p) => String(p.name || "").toLowerCase() === "born" && p.value === true)) || null;
+      objects.find(
+        (o) =>
+          Array.isArray(o.properties) &&
+          o.properties.some((p) => String(p.name || "").toLowerCase() === "born" && (p.value === true || p.value === 1))
+      ) || null;
 
     const spawnX = bornObj ? bornObj.x + (bornObj.width || tileW) / 2 : tileW * 2;
-    const spawnY = bornObj ? bornObj.y : tileH * 2;
+    const spawnY = bornObj
+      ? bornObj.y - Math.max(6, Math.min(tileH * 0.6, (bornObj.height || tileH) * 0.6))
+      : tileH * 2;
 
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
       for (const idStr of Object.keys(ts.tiles)) {
-        const id = Number(idStr);
-        const t = ts.tiles[id];
+        const t = ts.tiles[Number(idStr)];
         if (!t?.imageSource) continue;
         const url = resolveTilesetImageUrl(t.imageSource, mapBase);
         if (!url) continue;
-        if (!imageToKey.has(url)) imageToKey.set(url, `tile_${ts.name}_${id}`);
+        if (!imageToKey.has(url)) imageToKey.set(url, `tile_${ts.name}_${idStr}`);
       }
     }
 
     const solids = [];
     const deathRects = [];
     const winRects = [];
-    const moveDBlocks = [];
-    const moveDTriggers = [];
     for (const layer of tileLayers) {
-      const data = layer.data;
       for (let idx = 0; idx < mapW * mapH; idx++) {
-        const gid = data[idx];
-        const tile = gid ? resolveTileFromGid(gid) : null;
+        const tile = resolveTileFromGid(layer.data[idx] || 0);
         if (!tile) continue;
         const col = idx % mapW;
         const row = Math.floor(idx / mapW);
         const cx = col * tileW + tileW / 2;
         const cy = row * tileH + tileH / 2;
         const p = tile.props || {};
-        const hasMoveD = Object.prototype.hasOwnProperty.call(p, "moveD");
-        const moveDInitial = hasMoveD ? p.moveD === true : false;
-        if (p.solid === true && !hasMoveD) solids.push({ cx, cy, w: tileW, h: tileH });
+        if (p.solid === true && p.fake !== true) solids.push({ cx, cy, w: tileW, h: tileH });
         if (p.death === true) deathRects.push({ cx, cy, w: tileW, h: tileH });
         if (p.win === true) winRects.push({ cx, cy, w: tileW, h: tileH });
-        if (hasMoveD) {
-          moveDBlocks.push({ cx, cy, w: tileW, h: tileH, initialMoveD: moveDInitial });
-          if (Number(layer.id) === 4 || String(layer.name || "").includes("3")) {
-            moveDTriggers.push({ cx, cy, w: tileW, h: tileH });
-          }
-        }
       }
     }
 
-    const playerSpeed = 550;
-
     const scene = {
       preload: function () {
+        this._loadErrors = [];
+        this.load.on("loaderror", (file) => {
+          this._loadErrors.push(file?.url || file?.src || file?.key || "unknown");
+        });
         this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
         this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
         this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
@@ -195,29 +227,26 @@
       },
       create: function () {
         state.levelScene = this;
-        this.bornX = spawnX;
-        this.bornY = spawnY;
+        this.finished = false;
         this.lastRespawnAt = -1e9;
         this.deathInvulnMs = 700;
-        this.moveDActivated = false;
-        this.moveDBodies = [];
-        this.layer3Imgs = [];
-        this.trapSpikeImgs = [];
-        this.trapArmAt = this.time.now + 500;
+        this.bornX = spawnX;
+        this.bornY = spawnY;
+
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.physics.world.gravity.y = 980;
-
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
+        if (this._loadErrors.length) {
+          console.error("[level3 loaderror urls]", this._loadErrors);
+          alert(`第三关有 ${this._loadErrors.length} 个图片加载失败，已输出到控制台。`);
+        }
 
         for (const layer of tileLayers) {
-          // Level 3 hidden terrain: keep collisions but hide the special layer.
-          const data = layer.data;
           for (let idx = 0; idx < mapW * mapH; idx++) {
-            const gid = data[idx];
-            const tile = gid ? resolveTileFromGid(gid) : null;
+            const tile = resolveTileFromGid(layer.data[idx] || 0);
             if (!tile) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
@@ -227,24 +256,7 @@
             const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
             const isWin = tile.props && tile.props.win === true;
             img.setDisplaySize(isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH);
-            const hasMoveD = Object.prototype.hasOwnProperty.call(tile.props || {}, "moveD");
-            if (hasMoveD) {
-              // Cover should be visible initially.
-              img.setAlpha(1);
-              const block = moveDBlocks.find((b) => b.cx === col * tileW + tileW / 2 && b.cy === row * tileH + tileH / 2);
-              if (block) block.img = img;
-            }
-            const isTrapSpike =
-              tile.props &&
-              tile.props.death === true &&
-              typeof tile.imageSource === "string" &&
-              tile.imageSource.toLowerCase().includes("trap.png");
-            if (isTrapSpike) {
-              img.setDisplaySize(tileW * 2, tileH * 2);
-              img.setAlpha(0);
-              this.trapSpikeImgs.push(img);
-            }
-            if (Number(layer.id) === 4 || String(layer.name || "").includes("3")) this.layer3Imgs.push(img);
+            // Level 3 should render like level 1/2/4: do not hide by layer.visible.
           }
         }
 
@@ -256,27 +268,13 @@
         }
 
         this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
-        this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+        this.player.setDisplaySize(tileW * 1.2, tileH * 1.8);
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
-        this.player.body.setMaxVelocity(250, 900);
         this.player.body.setDragX(900);
+        this.player.body.setMaxVelocity(250, 900);
         this.physics.add.collider(this.player, this.solids);
-
-        this.moveDGroup = this.physics.add.group();
-        for (const b of moveDBlocks) {
-          const rect = this.add.rectangle(b.cx, b.cy, b.w, b.h, 0x000000, 0);
-          this.physics.add.existing(rect);
-          if (rect.body) {
-            rect.body.setImmovable(!b.initialMoveD);
-            rect.body.allowGravity = !!b.initialMoveD;
-            rect.body.setVelocity(0, 0);
-          }
-          this.moveDGroup.add(rect);
-          this.moveDBodies.push({ ...b, rect });
-        }
-        this.physics.add.collider(this.player, this.moveDGroup);
 
         this.deathSensors = this.physics.add.staticGroup();
         for (const r of deathRects) {
@@ -297,76 +295,70 @@
           this.physics.add.existing(s, true);
           this.winSensors.add(s);
         }
-        this.finished = false;
         this.physics.add.overlap(this.player, this.winSensors, () => {
           if (this.finished) return;
           this.finished = true;
           if (typeof ctx.onLevelWin === "function") ctx.onLevelWin(levelId);
         });
 
-        this.triggerSensors = this.physics.add.staticGroup();
-        for (const t of moveDTriggers) {
-          const s = this.add.rectangle(t.cx, t.cy, t.w, t.h, 0x0000ff, 0);
-          this.physics.add.existing(s, true);
-          this.triggerSensors.add(s);
-        }
-        this.physics.add.overlap(this.player, this.triggerSensors, () => {
-          if (this.finished) return;
-          if (this.time.now < this.trapArmAt) return;
-          this.triggerTrapEvent();
-        });
-
-        this.triggerTrapEvent = () => {
-          if (this.moveDActivated) return;
-          this.moveDActivated = true;
-          for (const blk of this.moveDBodies) {
-            const body = blk?.rect?.body;
-            if (!body) continue;
-            body.setImmovable(false);
-            body.allowGravity = true;
-            body.setVelocity(0, 0);
-            if (blk.img) blk.img.setAlpha(1);
-          }
-          for (const img of this.trapSpikeImgs) img.setAlpha(1);
-          for (const img of this.layer3Imgs) {
-            this.tweens.add({ targets: img, y: img.y + tileH * 4, duration: 650, ease: "Sine.easeIn" });
-          }
+        const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
+          p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
         };
-
-        this.controls = this.input.keyboard.createCursorKeys();
-        this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.SPACE;
+        this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
       },
       update: function () {
-        // Trigger is now only via dedicated moveD trigger tiles.
+        if (!this.player?.body || this.finished) return;
 
-        // Fall out of map => death and respawn at born.
-        if (this.player?.y > worldH + tileH) {
+        const hitWorldEdge =
+          this.player.body.blocked.left ||
+          this.player.body.blocked.right ||
+          this.player.body.blocked.up ||
+          this.player.body.blocked.down;
+        if (
+          hitWorldEdge ||
+          this.player.x < -tileW ||
+          this.player.x > worldW + tileW ||
+          this.player.y < -tileH ||
+          this.player.y > worldH + tileH
+        ) {
           this.player.body.setVelocity(0, 0);
           this.player.setPosition(this.bornX, this.bornY);
           this.lastRespawnAt = this.time.now;
+          return;
         }
 
-        const left = this.controls.left.isDown;
-        const right = this.controls.right.isDown;
-        if (left) this.player.setVelocityX(-playerSpeed);
-        else if (right) this.player.setVelocityX(playerSpeed);
+        const speed = 550;
+        const mobile = window.__PT_isMobileControl?.() === true;
+        const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
+        const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
+        if (left) this.player.setVelocityX(-speed);
+        else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
+
         if (left) this.player.setTexture("char_left");
         else if (right) this.player.setTexture("char_right");
         else this.player.setTexture("char_front");
 
-        const wantJump = Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
-        // Jump power x1.5
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(-1200);
+        const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {
+          this.player.setVelocityY(-1200);
+        }
       },
     };
 
+    const vp = window.__PT_getGameViewport ? window.__PT_getGameViewport() : {
+      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
+      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
+    };
     state.phaser = new Phaser.Game({
       type: Phaser.AUTO,
       parent: ui.phaserMount,
-      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
-      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
-      backgroundColor: "#0b1220",
+      width: vp.width,
+      height: vp.height,
+      transparent: true,
       physics: { default: "arcade", arcade: { debug: false } },
       scene,
     });

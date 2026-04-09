@@ -39,6 +39,19 @@
       if (typeof imageSource !== "string" || !imageSource) return null;
 
       const baseName = imageSource.split("/").pop();
+      const legacyNameMap = {
+        "1.png": "blue.png",
+        "2.png": "earthWall.png",
+        "3.png": "earthWall2.png",
+        "4.png": "doorRedStroked.png",
+        "5.png": "trap.png",
+      };
+      const mappedName = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
+      if (mappedName) {
+        candidates.push(`../../map/${mappedName}`);
+        candidates.push(`../map/${mappedName}`);
+        candidates.push(`map/${mappedName}`);
+      }
       const hasSticker = imageSource.includes("sticker-knight/map/");
       if (hasSticker && baseName) {
         // Maps under `doubleplayer/level1/` need `../../map/`.
@@ -159,7 +172,8 @@
       if (!o) return fallback;
       return {
         x: o.x + (o.width || tileW) / 2,
-        y: o.y,
+        // Lift spawn point a bit so feet stand on born platform instead of inside it.
+        y: o.y - Math.max(6, Math.min(tileH * 0.6, (o.height || tileH) * 0.6)),
       };
     }
 
@@ -344,10 +358,7 @@
           p.body.setMaxVelocity(250, 900);
           this.physics.add.collider(p, this.solids);
           for (const m of this.movers) this.physics.add.collider(p, m);
-          for (const sp of this.spikes) this.physics.add.overlap(p, sp, () => {
-            p.setPosition(x, y);
-            p.body.setVelocity(0, 0);
-          });
+          for (const sp of this.spikes) this.physics.add.overlap(p, sp, () => this.respawnPlayer(p));
           return p;
         };
 
@@ -355,6 +366,13 @@
         this.p2Spawn = toSpawn(born2Obj, { x: tileW * 3.2, y: worldH - tileH * 3 });
         this.p1 = mkPlayer(this.p1Spawn.x, this.p1Spawn.y, 0x93c5fd);
         this.p2 = mkPlayer(this.p2Spawn.x, this.p2Spawn.y, 0xfca5a5);
+        this.respawnPlayer = (player) => {
+          if (!player?.body) return;
+          const isP1 = player === this.p1;
+          const sp = isP1 ? this.p1Spawn : this.p2Spawn;
+          player.setPosition(sp.x, sp.y);
+          player.body.setVelocity(0, 0);
+        };
 
         // win sensors
         this.winSensors = this.physics.add.staticGroup();
@@ -372,8 +390,8 @@
         this.physics.add.overlap(this.p2, this.winSensors, () => finish("P2"));
 
         // inputs (from settings)
-        const kb = state.keybinds || {
-          p1: { left: "ArrowLeft", right: "ArrowRight", jump: "Space" },
+        const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
+          p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
         };
         const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
@@ -429,19 +447,25 @@
         }
 
         if (this.finished) return;
+        const outOfMap = (p) =>
+          !!p &&
+          (p.x < -tileW || p.x > worldW + tileW || p.y < -tileH || p.y > worldH + tileH);
+        if (outOfMap(this.p1)) this.respawnPlayer(this.p1);
+        if (outOfMap(this.p2)) this.respawnPlayer(this.p2);
 
         // P1
         const pSpeed = 520;
         const jumpV = -1200;
-        const p1Left = this.p1Keys.left.isDown;
-        const p1Right = this.p1Keys.right.isDown;
+        const mobile = window.__PT_isMobileControl?.() === true;
+        const p1Left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
+        const p1Right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
         if (p1Left) this.p1.setVelocityX(-pSpeed);
         else if (p1Right) this.p1.setVelocityX(pSpeed);
         else this.p1.setVelocityX(0);
         if (p1Left) this.p1.setTexture("char_left");
         else if (p1Right) this.p1.setTexture("char_right");
         else this.p1.setTexture("char_front");
-        const p1Jump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump);
+        const p1Jump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (p1Jump && (this.p1.body.blocked.down || this.p1.body.touching.down)) this.p1.setVelocityY(jumpV);
 
         // P2
@@ -458,12 +482,16 @@
       },
     };
 
+    const vp = window.__PT_getGameViewport ? window.__PT_getGameViewport() : {
+      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
+      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
+    };
     state.phaser = new Phaser.Game({
       type: Phaser.AUTO,
       parent: ctx.ui.phaserMount,
-      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
-      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
-      backgroundColor: "#0b1220",
+      width: vp.width,
+      height: vp.height,
+      transparent: true,
       physics: { default: "arcade", arcade: { debug: false } },
       scene,
     });

@@ -85,6 +85,20 @@
       }
       return { name, tiles };
     }
+    function codeToPhaserKeyCode(code) {
+      if (typeof code !== "string" || !code) return null;
+      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
+      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
+      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
+      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
+      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
+      if (code.startsWith("Key") && code.length === 4) {
+        const ch = code.slice(3);
+        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
+        return typeof kc === "number" ? kc : null;
+      }
+      return null;
+    }
 
     // tilesets
     const tilesetInfos = [];
@@ -269,6 +283,10 @@
         this.player.body.setDragX(900);
         this.physics.add.collider(this.player, this.solids);
         for (const m of this.movers) this.physics.add.collider(this.player, m);
+        this.respawnPlayer = () => {
+          this.player.setPosition(spawnX, spawnY);
+          this.player.body?.setVelocity(0, 0);
+        };
 
         // death spikes by layer
         this.layer3Spikes = [];
@@ -294,8 +312,7 @@
         this.allSpikes = [...this.layer3Spikes, ...this.layer4Spikes, ...this.layer5Spikes];
         for (const sp of this.allSpikes) {
           this.physics.add.overlap(this.player, sp, () => {
-            this.player.setPosition(spawnX, spawnY);
-            this.player.body.setVelocity(0, 0);
+            this.respawnPlayer();
           });
         }
 
@@ -366,11 +383,20 @@
           }
         };
 
-        this.controls = this.input.keyboard.createCursorKeys();
-        this.jumpKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
+          p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
+        };
+        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.SPACE;
+        this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
       },
       update: function () {
         if (!this.player?.body) return;
+        if (this.player.x < -tileW || this.player.x > worldW + tileW || this.player.y < -tileH || this.player.y > worldH + tileH) {
+          this.respawnPlayer();
+          return;
+        }
 
         // mover periodic motion
         for (const m of this.movers) {
@@ -386,8 +412,9 @@
           m.body.updateFromGameObject();
         }
 
-        const left = this.controls.left.isDown;
-        const right = this.controls.right.isDown;
+        const mobile = window.__PT_isMobileControl?.() === true;
+        const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
+        const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
         if (left) this.player.setVelocityX(-220);
         else if (right) this.player.setVelocityX(220);
         else this.player.setVelocityX(0);
@@ -395,17 +422,21 @@
         else if (right) this.player.setTexture("char_right");
         else this.player.setTexture("char_front");
 
-        const wantJump = Phaser.Input.Keyboard.JustDown(this.controls.up) || Phaser.Input.Keyboard.JustDown(this.jumpKey);
+        const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(jumpV);
       },
     };
 
+    const vp = window.__PT_getGameViewport ? window.__PT_getGameViewport() : {
+      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
+      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
+    };
     state.phaser = new Phaser.Game({
       type: Phaser.AUTO,
       parent: ui.phaserMount,
-      width: Math.min(1400, Math.max(900, window.innerWidth - 80)),
-      height: Math.min(900, Math.max(650, window.innerHeight - 200)),
-      backgroundColor: "#0b1220",
+      width: vp.width,
+      height: vp.height,
+      transparent: true,
       physics: { default: "arcade", arcade: { debug: false } },
       scene,
     });
