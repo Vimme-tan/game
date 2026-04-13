@@ -10,7 +10,7 @@
     setLevelPlayLayout(true);
     destroyPhaser();
 
-    const mapUrl = new URL(assets.level1Json, window.location.href).toString();
+    const mapUrl = window.PTLevelShared?.resolveGameUrl?.(assets.level1Json) || new URL(assets.level1Json, window.location.href).toString();
     if (window.location.protocol === "file:") {
       alert("Please run via http://localhost instead of file:// to load local map resources.");
       return;
@@ -18,9 +18,7 @@
 
     let mapData;
     try {
-      const r = await fetch(mapUrl, { credentials: "same-origin" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      mapData = await r.json();
+      mapData = await (window.PTLevelShared?.fetchJsonWithFallback?.(mapUrl) ?? (await (await fetch(mapUrl, { credentials: "same-origin" })).json()));
     } catch (e) {
       alert(`Level 1 map load failed: ${e?.message || String(e)}`);
       return;
@@ -95,7 +93,7 @@
       }
       if (!chosen) return null;
       const tileId = clean - chosen.firstgid;
-      const tile = chosen.tiles[tileId];
+      const tile = chosen.tiles ? chosen.tiles[tileId] : null;
       if (!tile) return null;
       return { ...tile, tileset: chosen, tileId };
     }

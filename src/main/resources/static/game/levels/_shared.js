@@ -158,6 +158,59 @@
     throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
   }
 
+  // 统一的 JSON 加载（兼容 GitHub Pages 子路径/缓存/503 等情况）
+  function resolveGameRoot() {
+    // 优先用 game.js 的 script src 作为根（最稳定：不依赖当前页面 URL）
+    try {
+      const s = document.querySelector('script[src*="/game.js"],script[src$="/game.js"],script[src*="game.js?v="],script[src$="game.js"]');
+      if (s && s.src) return new URL("./", s.src).toString(); // .../game/
+    } catch {}
+    // 兜底：用当前页面
+    try {
+      return new URL("./", window.location.href).toString();
+    } catch {}
+    return "./";
+  }
+
+  function resolveGameUrl(relOrAbs) {
+    if (typeof relOrAbs !== "string" || !relOrAbs) return null;
+    try {
+      // 已经是绝对 URL
+      const u = new URL(relOrAbs);
+      return u.toString();
+    } catch {}
+    // 相对路径：相对于 game root（而不是 window.location.href）
+    try {
+      return new URL(relOrAbs, resolveGameRoot()).toString();
+    } catch {}
+    return null;
+  }
+
+  async function fetchJsonWithFallback(relOrUrl) {
+    const url0 = resolveGameUrl(relOrUrl) || String(relOrUrl || "");
+    const candidates = [];
+    if (url0) candidates.push(url0);
+    // 再试一次：加 cache-bust，避免 Pages/CDN 返回旧的错误响应
+    if (url0) candidates.push(url0 + (url0.includes("?") ? "&" : "?") + "v=" + Date.now());
+
+    let lastErr = null;
+    for (const url of candidates) {
+      try {
+        // first try: same-origin
+        let r = await fetch(url, { credentials: "same-origin" });
+        if (!r.ok) {
+          // second try: no credentials (some static hosts behave better)
+          r = await fetch(url);
+        }
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return await r.json();
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error(`Failed to fetch json: ${relOrUrl}`);
+  }
+
   // 统一的 TSX 解析：读取 tile 的 imageSource 和自定义 properties
   function parseTsx(tsxText) {
     const xml = new DOMParser().parseFromString(tsxText, "application/xml");
@@ -302,6 +355,8 @@
     resolveTilesetImageUrl,
     resolveTilesetImageUrlEx,
     fetchTsxText,
+    fetchJsonWithFallback,
+    resolveGameUrl,
     parseTsx,
     parseTsxTyped,
     getDefaultPlayerTuning,

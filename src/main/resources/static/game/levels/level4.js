@@ -72,7 +72,7 @@
       }
       if (!chosen) return null;
       const tileId = clean - chosen.firstgid;
-      const tile = chosen.tiles[tileId];
+      const tile = chosen.tiles ? chosen.tiles[tileId] : null;
       if (!tile) return null;
       return { ...tile, tileset: chosen, tileId };
     }
