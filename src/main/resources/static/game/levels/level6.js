@@ -47,83 +47,12 @@
       return false;
     }
 
-    function resolveTilesetImageUrl(imageSource, baseUrl) {
-      const candidates = [];
-      if (typeof imageSource !== "string" || !imageSource) return null;
-      const baseName = imageSource.split("/").pop();
-      const legacyNameMap = {
-        "1.png": "blue.png",
-        "2.png": "earthWall.png",
-        "3.png": "earthWall2.png",
-        "4.png": "doorRedStroked.png",
-        "5.png": "trap.png",
-      };
-      const mappedName = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
-      if (mappedName) {
-        candidates.push(`../../map/${mappedName}`);
-        candidates.push(`../map/${mappedName}`);
-        candidates.push(`map/${mappedName}`);
-        candidates.push(`./map/${mappedName}`);
-      }
-      if (baseName) {
-        candidates.push(`../../map/${baseName}`);
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
-        candidates.push(`./map/${baseName}`);
-      }
-      if (imageSource.includes("sticker-knight/map/")) {
-        candidates.push(imageSource.replace("sticker-knight/map/", "../../map/"));
-        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
-      }
-      candidates.push(imageSource);
-      for (const c of candidates) {
-        try {
-          return new URL(c, baseUrl).toString();
-        } catch {}
-      }
-      return null;
-    }
+    const resolveTilesetImageUrl = (imageSource, baseUrl) =>
+      window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
 
-    async function fetchTsxText(tsxSource, baseUrl) {
-      const tsxUrl = new URL(tsxSource, baseUrl).toString();
-      const baseName = String(tsxSource || "").split("/").pop();
-      const fallback = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
-      const candidates = [tsxUrl, fallback].filter(Boolean);
-      let lastErr = null;
-      for (const cand of candidates) {
-        try {
-          const r = await fetch(cand, { credentials: "same-origin" });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.text();
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
-    }
-
-    function parseTsx(tsxText) {
-      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
-      const root = xml.querySelector("tileset");
-      if (!root) throw new Error("invalid tsx format");
-      const name = root.getAttribute("name") || "tileset";
-      const tiles = {};
-      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
-        const id = Number(tileEl.getAttribute("id") || "0");
-        const imgEl = tileEl.querySelector("image");
-        const imageSource = imgEl?.getAttribute("source") || null;
-        const props = {};
-        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
-          const propName = String(p.getAttribute("name") || "");
-          if (!propName) continue;
-          const type = String(p.getAttribute("type") || "").toLowerCase();
-          const value = String(p.getAttribute("value") || "").toLowerCase();
-          props[propName] = type === "bool" ? value === "true" || value === "1" : value;
-        }
-        tiles[id] = { id, imageSource, props };
-      }
-      return { name, tiles };
-    }
+    // TSX 加载/解析统一走共享模块，减少重复代码
+    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
 
     const tilesetInfos = [];
     for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
@@ -230,23 +159,10 @@
       }
     }
 
-    function codeToPhaserKeyCode(code) {
-      if (typeof code !== "string" || !code) return null;
-      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
-      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
-      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
-      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
-      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
-      if (code.startsWith("Key") && code.length === 4) {
-        const ch = code.slice(3);
-        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
-        return typeof kc === "number" ? kc : null;
-      }
-      return null;
-    }
+    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
-    const PLAYER_SPEED = 300;
-    const JUMP_V = -920;
+    // 人物参数统一走共享模块（方便全关统一调整）
+    const tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
 
     const scene = {
       preload: function () {
@@ -257,6 +173,7 @@
       },
       create: function () {
         state.levelScene = this;
+        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
         this.finished = false;
         this.dead = false;
         this.lastRespawnAt = -1e9;
@@ -264,9 +181,11 @@
         this.triggered = new Set();
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 900;
+        this.physics.world.gravity.y = tuning.gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
+        // 单人关卡背景统一：世界内灰底，世界外保持主页面背景
+        window.PTLevelShared?.applyWorldGreyBackdrop?.(this, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
@@ -331,7 +250,13 @@
           const isSpike = t?.isSpike === true;
           const isWall = t?.isWall === true;
           if (o) {
-            o.setDisplaySize(tileW, tileH);
+            // 第6关：所有刺宽*2，高/2（墙体仍保持正常 tile 尺寸）
+            o.setDisplaySize(isSpike ? tileW * 2 : tileW, isSpike ? tileH / 2 : tileH);
+            if (isSpike) {
+              // 关键：刺按 tile 网格对齐（与静态砖块相同的 (x,y,origin) 体系），避免“整体右移几格”的错位感
+              o.setOrigin(0, 1);
+              o.setPosition(x - tileW / 2, y + tileH / 2);
+            }
             // Walls should cover spikes visually.
             o.setDepth(isWall ? 45 : 15);
             // Hide ALL spikes visually (even while moving).
@@ -349,6 +274,8 @@
             b.moves = false;
             b.setVelocity(0, 0);
             if (typeof b.setGravityY === "function") b.setGravityY(0);
+            // 刺的碰撞体也按宽*2、高/2缩放（墙体保持默认）
+            if (isSpike && typeof b.setSize === "function") b.setSize((tileW * 2) * 0.9, (tileH / 2) * 0.9, true);
           }
           bodyObj._spawn = { x, y };
           bodyObj._props = t.props;
@@ -387,8 +314,8 @@
         this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
-        this.player.body.setDragX(900);
-        this.player.body.setMaxVelocity(320, 900);
+        this.player.body.setDragX(tuning.dragX);
+        this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
 
         this.physics.add.collider(this.player, this.solids);
         // moving walls are part of `deadly` group? no. add as collider targets explicitly
@@ -407,12 +334,8 @@
           if (this.dead || this.finished) return;
           this.dead = true;
           this.player.body.setVelocity(0, 0);
-          this.time.delayedCall(650, () => {
-            this.dead = false;
-            this.lastRespawnAt = this.time.now;
-            this.player.setPosition(this.bornX, this.bornY);
-            this.player.body.setVelocity(0, 0);
-          });
+          // 需求：死亡 = 重新开始本关（事件全部重置）
+          window.PTLevelShared?.restartLevel?.(ctx, levelId, window.SinglePlayerLevels?.startLevel6, 650);
         };
         this.handleDeath = handleDeath;
 
@@ -519,6 +442,23 @@
             oneShot("touch2", () => {
               // dmove spikes: down 5 then left 2, then disappear (medium speed)
               revealSpikes(this.spikesDmoveL4);
+              let remaining = this.spikesDmoveL4.length;
+              const startDmover = () => {
+                // dmover：等 dmove 全部消失后再出现/移动
+                revealSpikes(this.spikesDmoverL4);
+                for (const o of this.spikesDmoverL4) {
+                  this.tweens.add({
+                    targets: o,
+                    y: o.y + tileH * 5,
+                    duration: 650,
+                    ease: "Sine.easeInOut",
+                    onComplete: () => {
+                      // 中等速度向右移出地图后消失
+                      startFly([o], 220);
+                    },
+                  });
+                }
+              };
               for (const o of this.spikesDmoveL4) {
                 this.tweens.add({
                   targets: o,
@@ -529,30 +469,19 @@
                     this.tweens.add({
                       targets: o,
                       x: o.x - tileW * 2,
-                      duration: 360,
+                      duration: 420,
                       ease: "Sine.easeInOut",
                       onComplete: () => {
                         if (o.body) o.body.enable = false;
                         o.destroy();
+                        remaining -= 1;
+                        if (remaining <= 0) startDmover();
                       },
                     });
                   },
                 });
               }
-              // dmover spikes: down 5 then move right until off-map, then disappear
-              revealSpikes(this.spikesDmoverL4);
-              for (const o of this.spikesDmoverL4) {
-                this.tweens.add({
-                  targets: o,
-                  y: o.y + tileH * 5,
-                  duration: 650,
-                  ease: "Sine.easeInOut",
-                  onComplete: () => {
-                    // medium speed fly right
-                    startFly([o], 220);
-                  },
-                });
-              }
+              if (this.spikesDmoveL4.length === 0) startDmover();
             })
           );
         }
@@ -646,15 +575,16 @@
         const mobile = window.__PT_isMobileControl?.() === true;
         const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
-        if (left) this.player.setVelocityX(-PLAYER_SPEED);
-        else if (right) this.player.setVelocityX(PLAYER_SPEED);
+        const speed = tuning.speed;
+        if (left) this.player.setVelocityX(-speed);
+        else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
         if (left) this.player.setTexture("char_left");
         else if (right) this.player.setTexture("char_right");
         else this.player.setTexture("char_front");
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(JUMP_V);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);
       },
     };
 

@@ -34,71 +34,13 @@
     const worldH = mapH * tileH;
     const mapBase = new URL(mapUrl);
 
-    function resolveTilesetImageUrl(imageSource, baseUrl) {
-      const candidates = [];
-      if (typeof imageSource !== "string" || !imageSource) return null;
-      if (imageSource.includes("sticker-knight/map/")) {
-        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
-        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
-      }
-      candidates.push(imageSource);
-      const baseName = imageSource.split("/").pop();
-      if (baseName) {
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
-        candidates.push(`./map/${baseName}`);
-      }
-      for (const c of candidates) {
-        try {
-          return new URL(c, baseUrl).toString();
-        } catch {}
-      }
-      return null;
-    }
+    const resolveTilesetImageUrl = (imageSource, baseUrl) =>
+      window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
 
-    async function fetchTsxText(tsxSource, baseUrl) {
-      const tsxUrl = new URL(tsxSource, baseUrl).toString();
-      const r = await fetch(tsxUrl, { credentials: "same-origin" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
-    }
-
-    function parseTsx(tsxText) {
-      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
-      const root = xml.querySelector("tileset");
-      if (!root) throw new Error("invalid tsx format");
-      const name = root.getAttribute("name") || "tileset";
-      const tiles = {};
-      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
-        const id = Number(tileEl.getAttribute("id") || "0");
-        const imgEl = tileEl.querySelector("image");
-        const imageSource = imgEl?.getAttribute("source") || null;
-        const props = {};
-        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
-          const propName = String(p.getAttribute("name") || "");
-          if (!propName) continue;
-          const type = String(p.getAttribute("type") || "").toLowerCase();
-          const value = String(p.getAttribute("value") || "").toLowerCase();
-          props[propName] = type === "bool" ? value === "true" || value === "1" : value;
-        }
-        tiles[id] = { id, imageSource, props };
-      }
-      return { name, tiles };
-    }
-    function codeToPhaserKeyCode(code) {
-      if (typeof code !== "string" || !code) return null;
-      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
-      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
-      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
-      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
-      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
-      if (code.startsWith("Key") && code.length === 4) {
-        const ch = code.slice(3);
-        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
-        return typeof kc === "number" ? kc : null;
-      }
-      return null;
-    }
+    // TSX 加载/解析统一走共享模块，避免每关重复实现
+    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
+    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
     // tilesets
     const tilesetInfos = [];
@@ -183,7 +125,9 @@
         const p = tile.props || {};
         const isL = p.lmove === true;
         const isR = p.rmove === true;
-        if (isL || isR) {
+        // Compatibility: some maps use `mov`/`move` to mean "move right".
+        const isMovR = p.mov === true || p.move === true;
+        if (isL || isR || isMovR) {
           const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
           const key = url ? imageToKey.get(url) : null;
           movingBlocks.push({ x: col * tileW, y: (row + 1) * tileH, w: tileW, h: tileH, key, mode: isL ? "lmove" : "rmove" });
@@ -199,10 +143,15 @@
       }
     }
 
-    const playerSpeed = 300; // requested fast movement
-    const jumpV = -920;
-    const gravityY = 900;
-    const playerMaxVy = 900;
+    // 人物参数统一走共享模块（方便全关统一调整）
+    const tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || {
+      speed: 300,
+      jumpV: -920,
+      gravityY: 900,
+      maxVx: 220,
+      maxVy: 900,
+      dragX: 900,
+    };
 
     const scene = {
       preload: function () {
@@ -213,14 +162,17 @@
       },
       create: function () {
         state.levelScene = this;
+        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
         this.finished = false;
         this.touchTriggered = false;
         this.touch2Triggered = false;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = gravityY;
+        this.physics.world.gravity.y = tuning.gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
+        // 单人关卡背景统一：世界内灰底，世界外保持主页面背景
+        window.PTLevelShared?.applyWorldGreyBackdrop?.(this, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
@@ -255,8 +207,8 @@
         // moving blocks (periodic)
         this.movers = [];
         for (const b of movingBlocks) {
-          const s = this.add.image(b.x, b.y, b.key).setOrigin(0, 1);
-          s.setDisplaySize(tileW, tileH);
+          const s = b.key ? this.add.image(b.x, b.y, b.key).setOrigin(0, 1) : this.add.rectangle(b.x + tileW / 2, b.y - tileH / 2, tileW, tileH, 0xffffff, 0.08);
+          if (s.setDisplaySize) s.setDisplaySize(tileW, tileH);
           this.physics.add.existing(s);
           s.body.allowGravity = false;
           s.body.immovable = true;
@@ -266,6 +218,7 @@
             s._maxX = s.x + tileW * 7;
             s._dir = -1;
           } else {
+            // Spec: rmove -> right 5 then left 10 (cycle between +5 and -5).
             s._minX = s.x - tileW * 5;
             s._maxX = s.x + tileW * 5;
             s._dir = 1;
@@ -281,13 +234,13 @@
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
-        this.player.body.setMaxVelocity(220, playerMaxVy);
-        this.player.body.setDragX(900);
+        this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
+        this.player.body.setDragX(tuning.dragX);
         this.physics.add.collider(this.player, this.solids);
         for (const m of this.movers) this.physics.add.collider(this.player, m);
         this.respawnPlayer = () => {
-          this.player.setPosition(spawnX, spawnY);
-          this.player.body?.setVelocity(0, 0);
+          // 需求：死亡 = 重新开始本关（事件全部重置）
+          window.PTLevelShared?.restartLevel?.(ctx, levelId, window.SinglePlayerLevels?.startLevel4, 250);
         };
 
         // death spikes by layer
@@ -417,15 +370,16 @@
         const mobile = window.__PT_isMobileControl?.() === true;
         const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
-        if (left) this.player.setVelocityX(-220);
-        else if (right) this.player.setVelocityX(220);
+        const speed = tuning.speed;
+        if (left) this.player.setVelocityX(-speed);
+        else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
         if (left) this.player.setTexture("char_left");
         else if (right) this.player.setTexture("char_right");
         else this.player.setTexture("char_front");
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(jumpV);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);
       },
     };
 

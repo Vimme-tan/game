@@ -22,7 +22,7 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       mapData = await r.json();
     } catch (e) {
-      alert(`????????????${e?.message || String(e)}`);
+      alert(`Race level 1 map load failed: ${e?.message || String(e)}`);
       return;
     }
 
@@ -34,92 +34,9 @@
     const worldH = mapH * tileH;
     const mapBase = new URL(mapUrl);
 
-    function resolveTilesetImageUrl(imageSource, baseUrl) {
-      const candidates = [];
-      if (typeof imageSource !== "string" || !imageSource) return null;
-
-      const baseName = imageSource.split("/").pop();
-      const legacyNameMap = {
-        "1.png": "blue.png",
-        "2.png": "earthWall.png",
-        "3.png": "earthWall2.png",
-        "4.png": "doorRedStroked.png",
-        "5.png": "trap.png",
-      };
-      const mappedName = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
-      if (mappedName) {
-        candidates.push(`../../map/${mappedName}`);
-        candidates.push(`../map/${mappedName}`);
-        candidates.push(`map/${mappedName}`);
-      }
-      const hasSticker = imageSource.includes("sticker-knight/map/");
-      if (hasSticker && baseName) {
-        // Maps under `doubleplayer/level1/` need `../../map/`.
-        candidates.push(`../../map/${baseName}`);
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
-      }
-
-      // Normalize legacy exported path like "../tiled/examples/sticker-knight/map/x.png"
-      // to the runtime shared map directory.
-      if (baseName) candidates.push(`../../map/${baseName}`);
-
-      candidates.push(imageSource);
-      if (baseName) {
-        candidates.push(`../../map/${baseName}`);
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
-        candidates.push(`./map/${baseName}`);
-      }
-
-      for (const c of candidates) {
-        try {
-          return new URL(c, baseUrl).toString();
-        } catch {}
-      }
-      return null;
-    }
-
-    async function fetchTsxText(tsxSource, baseUrl) {
-      const tsxUrl = new URL(tsxSource, baseUrl).toString();
-      const baseName = String(tsxSource || "").split("/").pop();
-      const fallback = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
-      const candidates = [tsxUrl, fallback].filter(Boolean);
-      let lastErr = null;
-      for (const cand of candidates) {
-        try {
-          const r = await fetch(cand, { credentials: "same-origin" });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.text();
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
-    }
-
-    function parseTsx(tsxText) {
-      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
-      const root = xml.querySelector("tileset");
-      if (!root) throw new Error("invalid tsx format");
-      const name = root.getAttribute("name") || "tileset";
-      const tiles = {};
-      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
-        const id = Number(tileEl.getAttribute("id") || "0");
-        const imgEl = tileEl.querySelector("image");
-        const imageSource = imgEl?.getAttribute("source") || null;
-        const props = {};
-        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
-          const propName = String(p.getAttribute("name") || "");
-          if (!propName) continue;
-          const type = String(p.getAttribute("type") || "").toLowerCase();
-          const value = String(p.getAttribute("value") || "").toLowerCase();
-          props[propName] = type === "bool" ? value === "true" || value === "1" : value;
-        }
-        tiles[id] = { id, imageSource, props };
-      }
-      return { name, tiles };
-    }
+    const resolveTilesetImageUrl = (imageSource, baseUrl) => window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
+    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
 
     // tilesets
     const tilesetInfos = [];
@@ -162,11 +79,14 @@
       .filter((l) => l && l.type === "objectgroup" && Array.isArray(l.objects))
       .flatMap((l) => l.objects || []);
 
+    const hasPropName = (obj, key) =>
+      Array.isArray(obj?.properties) && obj.properties.some((p) => String(p?.name || "").toLowerCase() === String(key || "").toLowerCase());
     const hasTrueProp = (obj, key) =>
       Array.isArray(obj?.properties) &&
       obj.properties.some((p) => String(p.name || "").toLowerCase() === key && (p.value === true || p.value === 1 || String(p.value || "").toLowerCase() === "true"));
-    const born1Obj = objects.find((o) => hasTrueProp(o, "born1") || hasTrueProp(o, "bron1")) || null;
-    const born2Obj = objects.find((o) => hasTrueProp(o, "born2")) || null;
+    // born 属性在部分图里可能是 false；只要属性名存在也视为出生点
+    const born1Obj = objects.find((o) => hasTrueProp(o, "born1") || hasTrueProp(o, "bron1") || hasPropName(o, "born1") || hasPropName(o, "bron1")) || null;
+    const born2Obj = objects.find((o) => hasTrueProp(o, "born2") || hasPropName(o, "born2")) || null;
 
     function toSpawn(o, fallback) {
       if (!o) return fallback;
@@ -177,31 +97,7 @@
       };
     }
 
-    function codeToPhaserKeyCode(code) {
-      if (typeof code !== "string" || !code) return null;
-      const c = code;
-      if (c === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
-      if (c === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
-      if (c === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
-      if (c === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
-      if (c === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
-      if (c === "ShiftLeft" || c === "ShiftRight") return Phaser.Input.Keyboard.KeyCodes.SHIFT;
-      if (c === "ControlLeft" || c === "ControlRight") return Phaser.Input.Keyboard.KeyCodes.CTRL;
-      if (c === "AltLeft" || c === "AltRight") return Phaser.Input.Keyboard.KeyCodes.ALT;
-      if (c.startsWith("Key") && c.length === 4) {
-        const ch = c.slice(3);
-        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
-        return typeof kc === "number" ? kc : null;
-      }
-      if (c.startsWith("Digit") && c.length === 6) {
-        const d = c.slice(5);
-        const map = { "0": "ZERO", "1": "ONE", "2": "TWO", "3": "THREE", "4": "FOUR", "5": "FIVE", "6": "SIX", "7": "SEVEN", "8": "EIGHT", "9": "NINE" };
-        const name = map[d];
-        const kc = name ? Phaser.Input.Keyboard.KeyCodes[name] : null;
-        return typeof kc === "number" ? kc : null;
-      }
-      return null;
-    }
+    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
     // preload images
     const imageToKey = new Map();
@@ -241,20 +137,50 @@
         const isDeath = p.death === true;
         const isL = p.lmove === true;
         const isR = p.rmove === true;
+        const isD = p.dmove === true;
+        const isU = p.upmove === true;
+
+        const hasMove = isL || isR || isD || isU;
 
         if (isWin) winRects.push({ cx, cy, w: tileW, h: tileH });
 
-        // Moving logic depends on layer and props
-        if (layerName === "two" && (isL || isR)) {
-          movers.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: "x", dir: isL ? -1 : 1, min: (isL ? -3 : -3), max: (isL ? 3 : 3) });
+        // Moving walls: solid + movement props.
+        // lmove/rmove: left 3 then right 3 (or opposite), periodic
+        // dmove/upmove: down 6 then up 6 (or opposite), periodic
+        if (isSolid && hasMove) {
+          if (isL || isR) {
+            movers.push({
+              x: col * tileW,
+              y: (row + 1) * tileH,
+              key,
+              axis: "x",
+              dir: isL ? -1 : 1,
+              min: -3,
+              max: 3,
+            });
+          } else {
+            movers.push({
+              x: col * tileW,
+              y: (row + 1) * tileH,
+              key,
+              axis: "y",
+              dir: isU ? -1 : 1,
+              min: -6,
+              max: 6,
+            });
+          }
           continue;
         }
-        if (layerName === "three" && isL) {
-          movers.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: "y", dir: 1, min: 0, max: 6 });
-          continue;
-        }
-        if (layerName === "three" && isR && isDeath) {
-          spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: "y", dir: -1, min: -6, max: 0 });
+
+        // Spikes rotation and special spike-follow for rturn2
+        if (isDeath) {
+          const angle = p.dturn ? 180 : p.rturn || p.rturn2 ? 90 : p.lturn ? -90 : 0;
+          // rturn2 spikes should move together with upmove wall: move up 6 then down 6 periodically
+          if (p.rturn2 === true) {
+            spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: "y", dir: -1, min: -6, max: 6, angle, speedGroup: "upmove" });
+          } else {
+            spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: null, dir: 0, min: 0, max: 0, angle });
+          }
           continue;
         }
 
@@ -271,12 +197,18 @@
       },
       create: function () {
         state.levelScene = this;
+        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
         this.finished = false;
 
+        // 保存到 scene 上，供 update 使用（避免出现 “tuning is not defined”）
+        this._tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
+
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 900;
+        this.physics.world.gravity.y = this._tuning.gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
+        // 双人关卡也统一：世界内灰底，世界外保持主页面背景
+        window.PTLevelShared?.applyWorldGreyBackdrop?.(this, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
@@ -289,7 +221,17 @@
             const tile = resolveTileFromGid(data[idx] || 0);
             if (!tile) continue;
             const p = tile.props || {};
-            const isMove = (layerName === "two" && (p.lmove === true || p.rmove === true)) || (layerName === "three" && (p.lmove === true || (p.rmove === true && p.death === true)));
+            const isMove = p.lmove === true || p.rmove === true || p.dmove === true || p.upmove === true || p.rturn2 === true;
+            const isDeath = p.death === true;
+            // death spikes are spawned separately (for rotation / moving rturn2)
+            if (isMove || isDeath) {
+              // but keep win door visible
+              if (p.win === true) {
+                // fallthrough to draw
+              } else {
+                continue;
+              }
+            }
             if (isMove) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
@@ -324,15 +266,16 @@
           s._dir = m.dir;
           s._min = m.min;
           s._max = m.max;
-          s._speed = (m.axis === "x" ? tileW : tileH) * 3.8;
+          // medium speed, consistent across movers
+          s._speed = (m.axis === "x" ? tileW : tileH) * 3.2;
           this.movers.push(s);
         }
 
-        // spikes (moving death)
+        // spikes (death): rotation + optional movement for rturn2
         this.spikes = [];
         for (const s0 of spikes) {
           const sp = this.add.image(s0.x, s0.y, s0.key).setOrigin(0, 1);
-          sp.setDisplaySize(tileW * 2, tileH);
+          sp.setDisplaySize(tileW * 2, tileH / 2);
           this.physics.add.existing(sp);
           sp.body.allowGravity = false;
           sp.body.immovable = true;
@@ -342,20 +285,22 @@
           sp._dir = s0.dir;
           sp._min = s0.min;
           sp._max = s0.max;
-          sp._speed = tileH * 6;
+          sp._speed = tileH * 3.2;
+          sp.angle = Number(s0.angle || 0);
           this.spikes.push(sp);
         }
 
         // players
         const mkPlayer = (x, y, tint) => {
+          const tuning = this._tuning || { speed: 300, jumpV: -920, maxVx: 320, maxVy: 900, dragX: 900 };
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
           p.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
           p.body.setCollideWorldBounds(true);
           p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setOffset(0, 0);
-          p.body.setDragX(900);
-          p.body.setMaxVelocity(220, 900);
+          p.body.setDragX(tuning.dragX);
+          p.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
           this.physics.add.collider(p, this.solids);
           for (const m of this.movers) this.physics.add.collider(p, m);
           for (const sp of this.spikes) this.physics.add.overlap(p, sp, () => this.respawnPlayer(p));
@@ -434,16 +379,18 @@
         }
 
         for (const sp of this.spikes) {
-          sp.y += sp._dir * sp._speed * dt;
-          const off = sp.y - sp._baseY;
-          if (off <= sp._min * tileH) {
-            sp.y = sp._baseY + sp._min * tileH;
-            sp._dir = 1;
-          } else if (off >= sp._max * tileH) {
-            sp.y = sp._baseY + sp._max * tileH;
-            sp._dir = -1;
+          if (sp._axis === "y") {
+            sp.y += sp._dir * sp._speed * dt;
+            const off = sp.y - sp._baseY;
+            if (off <= sp._min * tileH) {
+              sp.y = sp._baseY + sp._min * tileH;
+              sp._dir = 1;
+            } else if (off >= sp._max * tileH) {
+              sp.y = sp._baseY + sp._max * tileH;
+              sp._dir = -1;
+            }
+            sp.body.updateFromGameObject();
           }
-          sp.body.updateFromGameObject();
         }
 
         if (this.finished) return;
@@ -453,9 +400,10 @@
         if (outOfMap(this.p1)) this.respawnPlayer(this.p1);
         if (outOfMap(this.p2)) this.respawnPlayer(this.p2);
 
-        // P1
-        const pSpeed = 300;
-        const jumpV = -920;
+        // P1 / P2
+        const tuning = this._tuning || { speed: 300, jumpV: -920 };
+        const pSpeed = tuning.speed;
+        const jumpV = tuning.jumpV;
         const mobile = window.__PT_isMobileControl?.() === true;
         const p1Left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const p1Right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));

@@ -44,94 +44,10 @@
       });
     }
 
-    function resolveTilesetImageUrl(imageSource, baseUrl) {
-      const candidates = [];
-      if (typeof imageSource !== "string" || !imageSource) return null;
-      const baseName = imageSource.split("/").pop();
-
-      const legacyNameMap = {
-        "1.png": "blue.png",
-        "2.png": "earthWall.png",
-        "3.png": "earthWall2.png",
-        "4.png": "doorRedStroked.png",
-        "5.png": "trap.png",
-      };
-      const mapped = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
-      if (mapped) {
-        candidates.push(`../../map/${mapped}`);
-        candidates.push(`../map/${mapped}`);
-        candidates.push(`map/${mapped}`);
-      }
-      if (baseName) {
-        candidates.push(`../../map/${baseName}`);
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
-      }
-      candidates.push(imageSource);
-
-      for (const c of candidates) {
-        try {
-          return new URL(c, baseUrl).toString();
-        } catch {}
-      }
-      return null;
-    }
-
-    async function fetchTsxText(tsxSource, baseUrl) {
-      const tsxUrl = new URL(tsxSource, baseUrl).toString();
-      const baseName = String(tsxSource || "").split("/").pop();
-      const fallback = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
-      const candidates = [tsxUrl, fallback].filter(Boolean);
-      let lastErr = null;
-      for (const cand of candidates) {
-        try {
-          const r = await fetch(cand, { credentials: "same-origin" });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.text();
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
-    }
-
-    function parseTsx(tsxText) {
-      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
-      const root = xml.querySelector("tileset");
-      if (!root) throw new Error("invalid tsx format");
-      const name = root.getAttribute("name") || "tileset";
-      const tiles = {};
-      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
-        const id = Number(tileEl.getAttribute("id") || "0");
-        const imgEl = tileEl.querySelector("image");
-        const imageSource = imgEl?.getAttribute("source") || null;
-        const props = {};
-        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
-          const propName = String(p.getAttribute("name") || "");
-          if (!propName) continue;
-          const type = String(p.getAttribute("type") || "").toLowerCase();
-          const value = String(p.getAttribute("value") || "").toLowerCase();
-          props[propName] = type === "bool" ? value === "true" || value === "1" : value;
-        }
-        tiles[id] = { id, imageSource, props };
-      }
-      return { name, tiles };
-    }
-
-    function codeToPhaserKeyCode(code) {
-      if (typeof code !== "string" || !code) return null;
-      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
-      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
-      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
-      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
-      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
-      if (code.startsWith("Key") && code.length === 4) {
-        const ch = code.slice(3);
-        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
-        return typeof kc === "number" ? kc : null;
-      }
-      return null;
-    }
+    const resolveTilesetImageUrl = (imageSource, baseUrl) => window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
+    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
+    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
     const tilesetInfos = [];
     for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
@@ -256,15 +172,20 @@
       },
       create: function () {
         state.levelScene = this;
+        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
         this.finished = false;
         this.redCleared = false;
         this.blueCleared = false;
         this.touch1Done = false;
         this.touch2Done = false;
 
+        // 双人关卡的人物参数也统一走共享模块，便于整体调参
+        this._tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
+
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = 900;
+        this.physics.world.gravity.y = this._tuning.gravityY;
         this.cameras.main.setBounds(0, 0, worldW, worldH);
+        window.PTLevelShared?.applyWorldGreyBackdrop?.(this, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
@@ -346,14 +267,15 @@
         this.touch2Sensor = mkTouch(touch2Obj);
 
         const mkPlayer = (x, y, tint) => {
+          const tuning = this._tuning;
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
           p.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
           p.body.setCollideWorldBounds(true);
           p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setOffset(0, 0);
-          p.body.setDragX(900);
-          p.body.setMaxVelocity(220, 900);
+          p.body.setDragX(tuning.dragX);
+          p.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
           this.physics.add.collider(p, this.solids);
           this.physics.add.collider(p, this.vanishBodies);
           return p;
@@ -455,8 +377,9 @@
       },
       update: function () {
         if (this.finished) return;
-        const pSpeed = 300;
-        const jumpV = -920;
+        const tuning = this._tuning || { speed: 300, jumpV: -920 };
+        const pSpeed = tuning.speed;
+        const jumpV = tuning.jumpV;
         const cam = this.cameras?.main;
         const hitGameViewportBottom = (p) => !!p && !!cam && p.getBounds().bottom >= cam.worldView.bottom - 2;
         const outOfMap = (p) =>

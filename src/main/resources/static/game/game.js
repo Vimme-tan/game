@@ -47,6 +47,9 @@
     btnWinNext: $("btnWinNext"),
     btnWinExit: $("btnWinExit"),
 
+    pauseBackdrop: $("pauseBackdrop"),
+    btnResumeLevel: $("btnResumeLevel"),
+
     kbP1Left: $("kbP1Left"),
     kbP1Right: $("kbP1Right"),
     kbP1Jump: $("kbP1Jump"),
@@ -147,14 +150,18 @@
     menuBgm: "./assets/audio/bgm/menu_bgm.mp3",
     clickSfx: "./assets/audio/sfx/btn_click.wav",
     level1Json: "./assets/maps/singleplayer/level1/one.json",
-    level2Json: "./assets/maps/singleplayer/level2.json",
+    level2Json: "./assets/maps/singleplayer/level2/level2.json",
     level3Json: "./assets/maps/singleplayer/level3/three.json",
-    level4Json: "./assets/maps/singleplayer/level4.json",
+    level4Json: "./assets/maps/singleplayer/level4/level4.json",
     level5Json: "./assets/maps/singleplayer/level5/sinfive.json",
     level6Json: "./assets/maps/singleplayer/level6/sinsix.json",
-    raceLevel1Json: "./assets/maps/doubleplayer/level1/douone.json",
+    level7Json: "./assets/maps/singleplayer/level7/seven.json",
+    raceLevel1Json: "./assets/maps/doubleplayer/level1/doubone.json",
+    raceLevel2Json: "./assets/maps/doubleplayer/level2/doutwo.json",
     teamLevel1Json: "./assets/maps/teamupchallenges/level1/double1.json",
     teamLevel2Json: "./assets/maps/teamupchallenges/level2/double2.json",
+    teamLevel3Json: "./assets/maps/teamupchallenges/level3/double3.json",
+    teamLevel4Json: "./assets/maps/teamupchallenges/level4/double4.json",
     characterFront: "./assets/character/front.png",
     characterLeft: "./assets/character/left.png",
     characterRight: "./assets/character/right.png",
@@ -385,8 +392,9 @@
 
   window.__PT_getGameViewport = function __PT_getGameViewport() {
     const mount = ui.phaserMount;
-    const w = Math.max(720, Math.floor(mount?.clientWidth || window.innerWidth - 96));
-    const h = Math.max(520, Math.floor(Math.min(window.innerHeight * 0.76, 860)));
+    // 关卡游玩视口：限制最大尺寸，保证画面“居中且不占满”
+    const w = Math.min(1100, Math.max(720, Math.floor(mount?.clientWidth || window.innerWidth * 0.92)));
+    const h = Math.min(820, Math.max(500, Math.floor(Math.min(window.innerHeight * 0.72, 820))));
     return { width: w, height: h };
   };
   window.__PT_isMobileControl = function __PT_isMobileControl() {
@@ -417,9 +425,9 @@
     for (let i = 1; i <= totalLevels; i++) {
       const btn = document.createElement("button");
       const unlocked =
-        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6)) ||
-        (state.mode === "race" && i === 1) ||
-        (state.mode === "coop" && (i === 1 || i === 2)) ||
+        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6 || i === 7)) ||
+        (state.mode === "race" && (i === 1 || i === 2)) ||
+        (state.mode === "coop" && (i === 1 || i === 2 || i === 3 || i === 4)) ||
         (state.mode !== "single" && state.mode !== "race" && state.mode !== "coop" && i === 1);
       btn.className = "levelCell" + (unlocked ? "" : " locked");
       btn.type = "button";
@@ -448,6 +456,7 @@
     ui.phaserMount.innerHTML = "";
     state.levelScene = null;
     state.levelPaused = false;
+    syncPauseUi(false);
     resetTouchState();
     if (ui.mobileControls) ui.mobileControls.classList.remove("active");
   }
@@ -473,6 +482,15 @@
     return state.levelScene || null;
   }
 
+  function syncPauseUi(isPaused) {
+    if (ui.btnPauseLevel) {
+      ui.btnPauseLevel.textContent = isPaused ? "▶" : "||";
+      ui.btnPauseLevel.title = isPaused ? "继续" : "暂停";
+      ui.btnPauseLevel.setAttribute("aria-label", ui.btnPauseLevel.title);
+    }
+    if (ui.pauseBackdrop) ui.pauseBackdrop.style.display = isPaused ? "flex" : "none";
+  }
+
   function togglePauseLevel() {
     const scene = getActiveLevelScene();
     if (!scene) return;
@@ -482,6 +500,7 @@
       if (scene.isPaused) scene.physics.pause();
       else scene.physics.resume();
     }
+    syncPauseUi(scene.isPaused);
   }
 
   function exitLevelWithConfirm() {
@@ -567,6 +586,48 @@
       // Keep silent when browser blocks autoplay or resource not ready.
     }
   }
+
+  // Remove black background from character PNGs (simple chroma-key).
+  // Keeps stickman while making surrounding black transparent.
+  window.__PT_makeSpriteBgTransparent = function __PT_makeSpriteBgTransparent(scene, keys) {
+    try {
+      if (!scene?.textures || !Array.isArray(keys)) return;
+      for (const key of keys) {
+        if (!key) continue;
+        const tex = scene.textures.get(key);
+        if (!tex || tex.key === "__MISSING") continue;
+        if (tex._ptChromaKeyApplied) continue;
+        const srcImg = typeof tex.getSourceImage === "function" ? tex.getSourceImage() : null;
+        if (!srcImg || !srcImg.width || !srcImg.height) continue;
+
+        const w = srcImg.width;
+        const h = srcImg.height;
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        const ctx2d = c.getContext("2d", { willReadFrequently: true });
+        if (!ctx2d) continue;
+        ctx2d.drawImage(srcImg, 0, 0);
+        const imgData = ctx2d.getImageData(0, 0, w, h);
+        const d = imgData.data;
+        const thr = 20;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i];
+          const g = d[i + 1];
+          const b = d[i + 2];
+          if (r <= thr && g <= thr && b <= thr) d[i + 3] = 0;
+        }
+        ctx2d.putImageData(imgData, 0, 0);
+
+        scene.textures.remove(key);
+        scene.textures.addCanvas(key, c);
+        const tex2 = scene.textures.get(key);
+        if (tex2) tex2._ptChromaKeyApplied = true;
+      }
+    } catch {
+      // noop
+    }
+  };
 
   async function onLevelWin(levelId, extra = {}) {
     const mode = state.mode;
@@ -680,12 +741,28 @@
       }
       return;
     }
+    if (state.mode === "single" && levelId === 7) {
+      if (window.SinglePlayerLevels?.startLevel7) {
+        await window.SinglePlayerLevels.startLevel7({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("第七关脚本未加载。");
+      }
+      return;
+    }
 
     if (state.mode === "race" && levelId === 1) {
       if (window.DoublePlayerLevels?.startRaceLevel1) {
         await window.DoublePlayerLevels.startRaceLevel1({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人竞速第一关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "race" && levelId === 2) {
+      if (window.DoublePlayerLevels?.startRaceLevel2) {
+        await window.DoublePlayerLevels.startRaceLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人竞速第二关脚本未加载。");
       }
       return;
     }
@@ -702,6 +779,22 @@
         await window.TeamUpLevels.startTeamLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人合作第二关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 3) {
+      if (window.TeamUpLevels?.startTeamLevel3) {
+        await window.TeamUpLevels.startTeamLevel3({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第三关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 4) {
+      if (window.TeamUpLevels?.startTeamLevel4) {
+        await window.TeamUpLevels.startTeamLevel4({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第四关脚本未加载。");
       }
       return;
     }
@@ -2429,6 +2522,12 @@
     });
 
     if (ui.btnPauseLevel) ui.btnPauseLevel.addEventListener("click", togglePauseLevel);
+    if (ui.btnResumeLevel) ui.btnResumeLevel.addEventListener("click", () => state.levelPaused && togglePauseLevel());
+    if (ui.pauseBackdrop) {
+      ui.pauseBackdrop.addEventListener("click", (e) => {
+        if (e.target === ui.pauseBackdrop && state.levelPaused) togglePauseLevel();
+      });
+    }
     if (ui.btnExitLevel) ui.btnExitLevel.addEventListener("click", exitLevelWithConfirm);
     if (ui.btnWinNext) ui.btnWinNext.addEventListener("click", () => state._winOnNext && state._winOnNext());
     if (ui.btnWinExit) ui.btnWinExit.addEventListener("click", () => state._winOnExit && state._winOnExit());

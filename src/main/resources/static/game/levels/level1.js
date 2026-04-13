@@ -42,104 +42,14 @@
       if (type === "bool") return v === true || v === 1 || String(v).toLowerCase() === "true";
       return v === true || v === 1 || String(v).toLowerCase() === "true";
     };
-    function codeToPhaserKeyCode(code) {
-      if (typeof code !== "string" || !code) return null;
-      if (code === "ArrowLeft") return Phaser.Input.Keyboard.KeyCodes.LEFT;
-      if (code === "ArrowRight") return Phaser.Input.Keyboard.KeyCodes.RIGHT;
-      if (code === "ArrowUp") return Phaser.Input.Keyboard.KeyCodes.UP;
-      if (code === "ArrowDown") return Phaser.Input.Keyboard.KeyCodes.DOWN;
-      if (code === "Space") return Phaser.Input.Keyboard.KeyCodes.SPACE;
-      if (code.startsWith("Key") && code.length === 4) {
-        const ch = code.slice(3);
-        const kc = Phaser.Input.Keyboard.KeyCodes[ch.toUpperCase()];
-        return typeof kc === "number" ? kc : null;
-      }
-      return null;
-    }
+    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
-    function resolveTilesetImageUrl(imageSource, baseUrl) {
-      const candidates = [];
-      if (typeof imageSource !== "string" || !imageSource) return null;
-      const baseName = imageSource.split("/").pop();
-      const legacyNameMap = {
-        "1.png": "blue.png",
-        "2.png": "earthWall.png",
-        "3.png": "earthWall2.png",
-        "4.png": "doorRedStroked.png",
-        "5.png": "trap.png",
-      };
-      const mappedName = baseName ? legacyNameMap[String(baseName).toLowerCase()] : null;
-      if (mappedName) {
-        candidates.push(`../../map/${mappedName}`);
-        candidates.push(`../map/${mappedName}`);
-        candidates.push(`map/${mappedName}`);
-        candidates.push(`./map/${mappedName}`);
-      }
-      if (baseName) {
-        candidates.push(`../../map/${baseName}`);
-        candidates.push(`../map/${baseName}`);
-        candidates.push(`map/${baseName}`);
-        candidates.push(`./map/${baseName}`);
-      }
-      if (imageSource.includes("sticker-knight/map/")) {
-        candidates.push(imageSource.replace("sticker-knight/map/", "../../map/"));
-        candidates.push(imageSource.replace("sticker-knight/map/", "../map/"));
-        candidates.push(imageSource.replace("sticker-knight/map/", "map/"));
-      }
-      candidates.push(imageSource);
-      for (const c of candidates) {
-        try {
-          return new URL(c, baseUrl).toString();
-        } catch {}
-      }
-      return null;
-    }
+    const resolveTilesetImageUrl = (imageSource, baseUrl) =>
+      window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
 
-    async function fetchTsxText(tsxSource, baseUrl) {
-      const tsxUrl = new URL(tsxSource, baseUrl).toString();
-      const baseName = String(tsxSource || "").split("/").pop();
-      const fallback = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
-      const candidates = [tsxUrl, fallback].filter(Boolean);
-      if (baseName && baseName.toLowerCase().endsWith(".tsx")) {
-        const stem = baseName.slice(0, -4);
-        candidates.push(new URL(`./${stem} .tsx`, baseUrl).toString());
-      }
-      let lastErr = null;
-      for (const cand of candidates) {
-        try {
-          const r = await fetch(cand, { credentials: "same-origin" });
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return await r.text();
-        } catch (e) {
-          lastErr = e;
-        }
-      }
-      throw lastErr || new Error(`Failed to fetch tsx: ${tsxSource}`);
-    }
-
-    function parseTsx(tsxText) {
-      const xml = new DOMParser().parseFromString(tsxText, "application/xml");
-      const root = xml.querySelector("tileset");
-      if (!root) throw new Error("invalid tsx format");
-      const name = root.getAttribute("name") || "tileset";
-      const tiles = {};
-      for (const tileEl of Array.from(xml.querySelectorAll("tile"))) {
-        const id = Number(tileEl.getAttribute("id") || "0");
-        const imgEl = tileEl.querySelector("image");
-        const imageSource = imgEl?.getAttribute("source") || null;
-        const props = {};
-        for (const p of Array.from(tileEl.querySelectorAll("properties > property"))) {
-          const propName = String(p.getAttribute("name") || "");
-          if (!propName) continue;
-          const type = String(p.getAttribute("type") || "").toLowerCase();
-          const value = p.getAttribute("value");
-          if (type === "bool") props[propName] = String(value).toLowerCase() === "true" || String(value) === "1";
-          else props[propName] = value;
-        }
-        tiles[id] = { id, imageSource, props };
-      }
-      return { name, tiles };
-    }
+    // TSX 加载/解析统一走共享模块（减少重复）
+    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
 
     const allLayers = Array.isArray(mapData.layers) ? mapData.layers : [];
     const tileLayers = allLayers.filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
@@ -148,6 +58,7 @@
     const objHas = (o, key) =>
       Array.isArray(o?.properties) && o.properties.some((p) => String(p.name || "").toLowerCase() === key && parseBool(p) === true);
     const bornObj = opObjects.find((o) => objHas(o, "born")) || null;
+    const touchObj = opObjects.find((o) => objHas(o, "touch")) || null;
     const fallareaObj = opObjects.find((o) => objHas(o, "fallarea")) || null;
 
     // tilesets
@@ -231,10 +142,15 @@
       }
     }
 
-    const PLAYER_SPEED = 300; // requested fast movement
-    const JUMP_V = -920; // about 7 tiles jump apex with gravity 900
-    const GRAVITY_Y = 900;
-    const PLAYER_MAX_VY = 900; // symmetric up/down speed cap
+    // 人物参数统一从共享模块读取（可按关卡覆盖）
+    const tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || {
+      speed: 300,
+      jumpV: -920,
+      gravityY: 900,
+      maxVx: 220,
+      maxVy: 900,
+      dragX: 900,
+    };
     const scene = {
       preload: function () {
         this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
@@ -244,15 +160,18 @@
       },
       create: function () {
         state.levelScene = this;
+        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
         this.finished = false;
         this.dead = false;
         this.fallActivated = false;
         this.fallBodies = [];
         this.lastRespawnAt = -1e9;
         this.deathInvulnMs = 900;
+        this.spawnGraceUntil = -1e9;
+        this.touchTriggered = false;
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
-        this.physics.world.gravity.y = GRAVITY_Y;
+        this.physics.world.gravity.y = tuning.gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
@@ -295,13 +214,15 @@
           this.solids.add(rect);
         }
 
-        // fall blocks group (initially solid support; after trigger fall with gravity)
+        // 下落方块组：初始作为“不可移动支撑”，触发后才允许移动并受重力影响
         this.fallGroup = this.physics.add.group();
         for (const b of fallTiles) {
           if (b.imgKey) {
             const img = this.physics.add.image(b.cx, b.cy, b.imgKey);
             img.setDisplaySize(tileW, tileH);
             img.setImmovable(true);
+            // 关键：初始禁止移动，避免玩家落地碰撞把方块“挤”下去（看起来像自动触发）
+            img.body.moves = false;
             img.body.allowGravity = false;
             img.body.setVelocity(0, 0);
             this.fallGroup.add(img);
@@ -312,6 +233,7 @@
             this.physics.add.existing(rect);
             if (rect.body) {
               rect.body.setImmovable(true);
+              rect.body.moves = false;
               rect.body.allowGravity = false;
               rect.body.setVelocity(0, 0);
             }
@@ -332,8 +254,13 @@
         this.player.body.setCollideWorldBounds(true);
         this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setOffset(0, 0);
-        this.player.body.setMaxVelocity(220, PLAYER_MAX_VY);
-        this.player.body.setDragX(900);
+        this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
+        this.player.body.setDragX(tuning.dragX);
+        // Avoid triggering sensors immediately on level entry due to spawn overlap.
+        this.spawnGraceUntil = this.time.now + 900;
+
+        // 触底（撞到世界边界底部）也判定死亡并重置
+        window.PTLevelShared?.installWorldBoundsDeath?.(this, this.player, () => this.handleDeath(), { down: true });
 
         this.physics.add.collider(this.player, this.solids);
         this.physics.add.collider(this.player, this.fallGroup);
@@ -358,6 +285,7 @@
             const body = blk?.obj?.body;
             if (!body) continue;
             body.setImmovable(false);
+            body.moves = true;
             body.allowGravity = true;
             body.setVelocity(0, 0);
           }
@@ -368,6 +296,7 @@
             if (blk?.obj?.body) {
               blk.obj.body.enable = true;
               blk.obj.body.setImmovable(true);
+              blk.obj.body.moves = false;
               blk.obj.body.allowGravity = false;
               blk.obj.body.setVelocity(0, 0);
             }
@@ -382,9 +311,13 @@
           this.time.delayedCall(650, () => {
             this.dead = false;
             this.lastRespawnAt = this.time.now;
+            // Death = restart level: reset all trigger-driven mechanics.
+            this.touchTriggered = false;
+            if (this.touchSensor?.body) this.touchSensor.body.enable = true;
             this.resetFall();
             this.player.setPosition(this.bornX, this.bornY);
             this.player.body.setVelocity(0, 0);
+            this.spawnGraceUntil = this.time.now + 600;
           });
         };
 
@@ -401,15 +334,72 @@
           if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
           this.handleDeath();
         });
-        // fallarea trigger object
-        if (fallareaObj) {
-          const x = Number(fallareaObj.x || 0);
-          const y = Number(fallareaObj.y || 0);
-          const w = Number(fallareaObj.width || tileW);
-          const h = Number(fallareaObj.height || tileH);
-          this.fallareaSensor = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x00ffff, 0);
-          this.physics.add.existing(this.fallareaSensor, true);
-          this.physics.add.overlap(this.player, this.fallareaSensor, () => this.activateFall());
+        // 触发区逻辑（推荐顺序）：
+        // 1) 如果地图对象层画了 touch=true：直接使用（最精确、最可控）
+        // 2) 否则：自动根据“下滑物块（layer=three 且 fall=true）”计算触发带
+        //    - 触发带的宽度 = 下滑物块的整体宽度（也就是“陷阱/物块”的宽度）
+        //    - 触发带的位置 = 这些物块的正上方（高度固定为 2 格，避免过大导致误触）
+        // 3) fallarea 仅作为最后兜底（老地图遗留，往往太大）
+
+        let trigger = null;
+
+        if (touchObj) {
+          trigger = {
+            x: Number(touchObj.x || 0),
+            y: Number(touchObj.y || 0),
+            w: Number(touchObj.width || tileW),
+            h: Number(touchObj.height || tileH),
+          };
+        } else if (Array.isArray(fallTiles) && fallTiles.length) {
+          // 自动触发带：覆盖所有下滑物块的水平跨度，并放在其上方
+          let minCx = Infinity;
+          let maxCx = -Infinity;
+          let minCy = Infinity;
+          for (const t of fallTiles) {
+            if (!t) continue;
+            if (typeof t.cx === "number") {
+              minCx = Math.min(minCx, t.cx);
+              maxCx = Math.max(maxCx, t.cx);
+            }
+            if (typeof t.cy === "number") {
+              minCy = Math.min(minCy, t.cy);
+            }
+          }
+          if (Number.isFinite(minCx) && Number.isFinite(maxCx) && Number.isFinite(minCy)) {
+            const fallLeft = minCx - tileW / 2;
+            const fallRight = maxCx + tileW / 2;
+            const w = Math.max(tileW, fallRight - fallLeft);
+            const h = tileH * 2;
+            // 下滑物块的顶部边缘
+            const fallTop = minCy - tileH / 2;
+            // 触发带紧贴在物块上方（不覆盖到物块本身）
+            const y = fallTop - h;
+            trigger = { x: fallLeft, y, w, h };
+          }
+        } else if (fallareaObj) {
+          // 兜底：对 fallarea 做裁剪，只取顶部 2 格
+          const rawX = Number(fallareaObj.x || 0);
+          const rawY = Number(fallareaObj.y || 0);
+          const rawW = Number(fallareaObj.width || tileW);
+          const rawH = Number(fallareaObj.height || tileH);
+          trigger = { x: rawX, y: rawY, w: rawW, h: Math.min(rawH, tileH * 2) };
+        }
+
+        if (trigger) {
+          const x = trigger.x;
+          const y = trigger.y;
+          const w = trigger.w;
+          const h = trigger.h;
+
+          this.touchSensor = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x00ffff, 0);
+          this.physics.add.existing(this.touchSensor, true);
+          this.physics.add.overlap(this.player, this.touchSensor, () => {
+            if (this.touchTriggered) return;
+            if (this.time.now < this.spawnGraceUntil) return;
+            this.touchTriggered = true;
+            if (this.touchSensor?.body) this.touchSensor.body.enable = false;
+            this.activateFall();
+          });
         }
 
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
@@ -427,25 +417,10 @@
           this.handleDeath();
           return;
         }
-        // Touching the game viewport boundary counts as death+respawn (not solid walls).
-        const vb = this.cameras.main.worldView;
-        const pb = this.player.getBounds();
-        if (pb.bottom >= vb.bottom - 2 || pb.top <= vb.top + 2 || pb.left <= vb.left + 2 || pb.right >= vb.right - 2) {
-          this.handleDeath();
-          return;
-        }
-        // disable fall blocks when off-map
-        for (const blk of this.fallBodies) {
-          const obj = blk.obj;
-          if (!obj?.body) continue;
-          if (obj.y - tileH / 2 > worldH + tileH) {
-            obj.body.enable = false;
-            obj.body.setVelocity(0, 0);
-            if (typeof obj.setVisible === "function") obj.setVisible(false);
-          }
-        }
+        // 掉出地图下边界的下落方块禁用（统一封装在共享模块里）
+        window.PTLevelShared?.disableBodiesBelowWorld?.(this.fallBodies, worldH, tileH);
 
-        const speed = PLAYER_SPEED;
+        const speed = tuning.speed;
         const mobile = window.__PT_isMobileControl?.() === true;
         const left = this.p1Keys.left.isDown || (mobile && window.__PT_touchDown?.("left"));
         const right = this.p1Keys.right.isDown || (mobile && window.__PT_touchDown?.("right"));
@@ -457,7 +432,7 @@
         else this.player.setTexture("char_front");
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
-        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(JUMP_V);
+        if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);
       },
     };
 
