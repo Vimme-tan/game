@@ -93,7 +93,7 @@
 
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
-      for (const idStr of Object.keys(ts.tiles)) {
+      for (const idStr of Object.keys(ts.tiles || {})) {
         const t = ts.tiles[Number(idStr)];
         if (!t?.imageSource) continue;
         const url = resolveTilesetImageUrl(t.imageSource, mapBase);

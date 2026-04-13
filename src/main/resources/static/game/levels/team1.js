@@ -112,7 +112,7 @@
 
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
-      for (const idStr of Object.keys(ts.tiles)) {
+      for (const idStr of Object.keys(ts.tiles || {})) {
         const id = Number(idStr);
         const t = ts.tiles[id];
         if (!t?.imageSource) continue;
