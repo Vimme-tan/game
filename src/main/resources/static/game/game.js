@@ -1,4 +1,16 @@
 (() => {
+  // GitHub Pages 默认 Jekyll 会忽略以下划线开头的静态文件（例如 levels/_shared.js），
+  // 导致 PTLevelShared 不存在，从而所有关卡加载失败。
+  // 这里做兜底：若未加载到 PTLevelShared，则动态加载 levels/shared.js。
+  try {
+    if (!window.PTLevelShared) {
+      const s = document.createElement("script");
+      s.src = "./levels/shared.js?v=20260413b";
+      s.async = false;
+      document.head.appendChild(s);
+    }
+  } catch {}
+
   const $ = (id) => document.getElementById(id);
   const ui = {
     landing: $("landing"),
