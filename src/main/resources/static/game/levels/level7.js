@@ -148,6 +148,22 @@
         const L4 = layerByName("four");
         const ordered = [L1, L2, L3, L4].filter(Boolean);
 
+        // 预收集 solid 单元格：用于“刺与 solid 重叠 -> 初始隐藏（仅事件触发才显示）”
+        const solidCells = new Set();
+        for (const layer of ordered) {
+          const data = layer.data;
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const tile = resolveTileFromGid(data[idx] || 0);
+            if (!tile) continue;
+            const p = tile.props || {};
+            if (p.solid === true) {
+              const col = idx % mapW;
+              const row = Math.floor(idx / mapW);
+              solidCells.add(`${col},${row}`);
+            }
+          }
+        }
+
         const drawTile = (col, row, tile, displayW = tileW, displayH = tileH, depth = 10) => {
           const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
           const key = url ? imageToKey.get(url) : null;
@@ -178,6 +194,37 @@
           if (o.body.setImmovable) o.body.setImmovable(true);
           o.body.moves = false;
           o.body.setVelocity(0, 0);
+        };
+
+        // death 判定用：让“可见刺”与“判定区”绑定，方便移动/隐藏/显示同步
+        const attachDeadlySensor = (o) => {
+          if (!o) return null;
+          const b = o.getBounds();
+          const s = this.add.rectangle(b.centerX, b.centerY, b.width, b.height, 0xff0000, 0);
+          this.physics.add.existing(s, true);
+          o._sensor = s;
+          this.deadly.add(s);
+          return s;
+        };
+        const syncDeadlySensor = (o) => {
+          const s = o?._sensor;
+          if (!o || !s?.body) return;
+          const b = o.getBounds();
+          s.x = b.centerX;
+          s.y = b.centerY;
+          if (s.body.setSize) s.body.setSize(b.width, b.height, true);
+          s.body.updateFromGameObject();
+        };
+        const setDeadlyActive = (o, active) => {
+          if (!o) return;
+          const s = o._sensor;
+          if (active) {
+            o.setVisible(true);
+            if (s?.body) s.body.enable = true;
+          } else {
+            o.setVisible(false);
+            if (s?.body) s.body.enable = false;
+          }
         };
 
         const spawnObjTile = (col, row, tile, displayW, displayH, depth = 30) => {
@@ -261,7 +308,18 @@
               // 刺尺寸：按单人关卡一致（宽=2格，高=半格）
               const o = spawnObjTile(col, row, tile, tileW * 2, tileH / 2, 26);
               this.dynamicDeadly.add(o);
-              addStaticRect(this.deadly, cx, cy, tileW * 2, tileH / 2); // overlap sensor
+              // 需求：刺集体向右移动 1 格
+              o.x += tileW * 1;
+              if (o.body?.updateFromGameObject) o.body.updateFromGameObject();
+
+              // death 判定区：与刺绑定，并同步到移动后位置
+              attachDeadlySensor(o);
+              syncDeadlySensor(o);
+
+              // 需求：与 solid 墙体重叠的刺初始隐藏，只有事件触发才显示
+              const overlappedSolid = solidCells.has(`${col},${row}`);
+              if (overlappedSolid) setDeadlyActive(o, false);
+
               if (lname === "one") oneDeathMoveLeft.push(o);
               else if (lname === "two") twoDeathUp.push(o);
               else if (lname === "three") threeDeath.push(o);
@@ -327,6 +385,13 @@
         const keyTouch = (k) => {
           if (!k?.body) return;
           this.haveKey = true;
+          // 需求：拿到 two 层 touch 钥匙后，two 层 death 刺向下移动 2 格（缩回墙内）
+          if (twoKey.includes(k)) {
+            for (const s of twoDeathUp) {
+              setDeadlyActive(s, true);
+              tweenMove(s, 0, tileH * 2, 180, null);
+            }
+          }
           try {
             k.destroy();
           } catch {}
@@ -368,10 +433,29 @@
             y: obj.y + dy,
             duration,
             ease: "Linear",
-            onUpdate: () => obj?.body?.updateFromGameObject?.(),
+            onUpdate: () => {
+              obj?.body?.updateFromGameObject?.();
+              syncDeadlySensor(obj);
+            },
             onComplete,
           });
         };
+
+        const activateAndMove = (list, dx, dy, duration, after) => {
+          for (const o of list) {
+            setDeadlyActive(o, true);
+            tweenMove(o, dx, dy, duration, after ? () => after(o) : null);
+          }
+        };
+
+        // move1：three 层 rmove 属性墙迅速右移 2 格
+        if (sensors.move1) {
+          this.physics.add.overlap(this.player, sensors.move1, () => {
+            once("move1", () => {
+              for (const w of threeWallsRmove) tweenMove(w, tileW * 2, 0, 220, null);
+            });
+          });
+        }
 
         // push：三层钥匙出现（并向右“推出去”）
         if (sensors.push) {
@@ -380,6 +464,12 @@
               for (const k of threeKey) {
                 k.setVisible(true);
                 k.body.enable = true;
+                // 需求：三层钥匙向右平移出地图
+                tweenMove(k, worldW + tileW * 10, 0, 520, () => {
+                  try {
+                    k.destroy();
+                  } catch {}
+                });
               }
               // one: rmove+solid 墙向左推 9 格（符合旧逻辑）
               for (const w of oneRmoveWalls) tweenMove(w, -tileW * 9, 0, 260, null);
@@ -391,7 +481,13 @@
         if (sensors.move2) {
           this.physics.add.overlap(this.player, sensors.move2, () => {
             once("move2", () => {
-              for (const s of oneDeathMoveLeft) tweenMove(s, -(worldW + tileW * 10), 0, 950, () => s.destroy());
+              // 需求：触发后才显示；适当速度，能跳跃躲开
+              activateAndMove(oneDeathMoveLeft, -(worldW + tileW * 10), 0, 1150, (o) => {
+                try {
+                  o._sensor?.destroy?.();
+                  o.destroy();
+                } catch {}
+              });
             });
           });
         }
@@ -400,7 +496,8 @@
         if (sensors.move3) {
           this.physics.add.overlap(this.player, sensors.move3, () => {
             once("move3", () => {
-              for (const s of twoDeathUp) tweenMove(s, 0, -tileH * 1, 160, null);
+              // 触发时显示并移动（刺贴地）
+              activateAndMove(twoDeathUp, 0, -tileH * 1, 160, null);
               for (const w of twoWallsRmove) tweenMove(w, 0, tileH * 15, 520, null);
               for (const k of twoKey) {
                 k.setVisible(true);
@@ -414,7 +511,7 @@
         if (sensors.jumpfall) {
           this.physics.add.overlap(this.player, sensors.jumpfall, () => {
             once("jumpfall", () => {
-              for (const s of threeDeath) tweenMove(s, 0, -tileH * 1, 160, null);
+              activateAndMove(threeDeath, 0, -tileH * 1, 160, null);
             });
           });
         }
