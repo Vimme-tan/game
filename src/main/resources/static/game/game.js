@@ -1121,7 +1121,7 @@
     const imageToKey = new Map(); // url -> key
     let heroImageUrl = null;
     for (const ts of tilesetInfos) {
-      for (const tileIdStr of Object.keys(ts.tiles)) {
+      for (const tileIdStr of Object.keys(ts.tiles || {})) {
         const tileId = Number(tileIdStr);
         const tile = ts.tiles[tileId];
         if (!tile?.imageSource) continue;
@@ -1687,7 +1687,7 @@
     // Preload all tile images
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
-      for (const idStr of Object.keys(ts.tiles)) {
+      for (const idStr of Object.keys(ts.tiles || {})) {
         const id = Number(idStr);
         const t = ts.tiles[id];
         if (!t?.imageSource) continue;
