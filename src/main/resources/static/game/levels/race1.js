@@ -287,6 +287,18 @@
           sp._max = s0.max;
           sp._speed = tileH * 3.2;
           sp.angle = Number(s0.angle || 0);
+          // 小修正：旋转后的刺在不同贴图下会出现偏移，按你的要求手动对齐
+          // dturn: 上移1格，右移2格；rturn: 上移2格；lturn: 上移1格
+          if (sp.angle === 180) {
+            sp.x += tileW * 2;
+            sp.y -= tileH * 1;
+          } else if (sp.angle === 90) {
+            sp.y -= tileH * 2;
+          } else if (sp.angle === -90) {
+            sp.y -= tileH * 1;
+          }
+          sp._baseX = sp.x;
+          sp._baseY = sp.y;
           this.spikes.push(sp);
         }
 

@@ -108,9 +108,11 @@
     const tileLayers = allLayers.filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
     const objLayer = allLayers.find((l) => l && l.type === "objectgroup");
     const objs = Array.isArray(objLayer?.objects) ? objLayer.objects : [];
-    const born1Obj = objs.find((o) => propTrue(o.properties, "born")) || null;
-    // born2 authoring bug: sometimes value is false; treat presence of property as intent.
-    const born2Obj = objs.find((o) => Array.isArray(o?.properties) && o.properties.some((p) => String(p?.name || "").toLowerCase() === "born2")) || null;
+    const hasPropName = (obj, key) =>
+      Array.isArray(obj?.properties) && obj.properties.some((p) => String(p?.name || "").toLowerCase() === String(key || "").toLowerCase());
+    // 竞速第二关：使用 born1 / born2（兼容值为 false 的情况：只要属性名存在就视为出生点）
+    const born1Obj = objs.find((o) => propTrue(o.properties, "born1") || propTrue(o.properties, "bron1") || hasPropName(o, "born1") || hasPropName(o, "bron1")) || null;
+    const born2Obj = objs.find((o) => propTrue(o.properties, "born2") || hasPropName(o, "born2")) || null;
     const touchObj = (n) => objs.find((o) => propTrue(o.properties, `touch${n}`) || String(o.name || "").toLowerCase() === `touch${n}`) || null;
     const t1 = touchObj(1);
     const t2 = touchObj(2);
@@ -200,6 +202,22 @@
           return img;
         };
 
+        // 预先收集所有 solid 的 tile 坐标：用于“刺与墙重叠则隐藏”
+        const solidCells = new Set();
+        for (const layer of tileLayers) {
+          const data = layer.data;
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const tile = resolveTileFromGid(data[idx]);
+            if (!tile) continue;
+            const p = tile.props || {};
+            if (p.solid === true) {
+              const col = idx % mapW;
+              const row = Math.floor(idx / mapW);
+              solidCells.add(`${col},${row}`);
+            }
+          }
+        }
+
         // render all static tiles as images (background grey etc.)
         let missingStaticKeys = 0;
         for (const layer of tileLayers) {
@@ -238,7 +256,8 @@
 
             if (p.solid === true) addStaticRect(this.solids, cx, cy);
             if (p.win === true) addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
-            if (p.death === true) addStaticRect(this.deathSensors, cx, cy, tileW * 2, tileH / 2);
+            // 刺与 solid 墙重叠的位置：不生成 death 判定（相当于隐藏）
+            if (p.death === true && !solidCells.has(`${col},${row}`)) addStaticRect(this.deathSensors, cx, cy, tileW * 2, tileH / 2);
           }
         }
         if (missingStaticKeys > 0) {
@@ -368,11 +387,9 @@
         }
 
         // spikes in three/four
-        // Spike visual size requirement: width = original*2, height = original/2.
-        // Original spike image in this pack is 128x32 (== tileW*2 by tileH/2 when tile is 64).
-        // So display size becomes 256x16 (== tileW*4 by tileH/4).
+        // 按你的要求：刺尺寸“向右变长为原来的两倍”（在原本 2 格宽基础上 -> 4 格宽），高度保持半格
         const spikeW = tileW * 4;
-        const spikeH = tileH / 4;
+        const spikeH = tileH / 2;
         const spawnSpike = (cx, cy, tile, rotationDeg, group) => {
           const o = spawnBodyImage(cx, cy, tile, spikeW, spikeH, 26, true);
           o.setAngle(rotationDeg);
@@ -396,6 +413,7 @@
             if (p.death !== true) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
+            if (solidCells.has(`${col},${row}`)) continue; // 重叠在墙里的刺直接隐藏
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
             if (which === "r" && p.rmove === true) spawnSpike(cx, cy, tile, 90, layer === layerThree ? this.spikesR3 : this.spikesR4);
