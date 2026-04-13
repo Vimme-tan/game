@@ -272,6 +272,8 @@
         }
 
         // spikes (death): rotation + optional movement for rturn2
+        // Arcade Physics 不支持旋转碰撞体，这里用“可见图片 + 隐形矩形判定区”来让 death 区域随旋转变化（AABB）。
+        this.deathSensors = this.physics.add.staticGroup();
         this.spikes = [];
         for (const s0 of spikes) {
           const sp = this.add.image(s0.x, s0.y, s0.key).setOrigin(0, 1);
@@ -299,6 +301,16 @@
           }
           sp._baseX = sp.x;
           sp._baseY = sp.y;
+
+          // 旋转后更新 body 位置（避免“显示移动了但判定没动”）
+          if (sp.body?.updateFromGameObject) sp.body.updateFromGameObject();
+
+          // 创建/绑定一个随图片旋转变化的 death 判定区（矩形 AABB）
+          const b = sp.getBounds();
+          const s = this.add.rectangle(b.centerX, b.centerY, b.width, b.height, 0xff0000, 0);
+          this.physics.add.existing(s, true);
+          sp._sensor = s;
+          this.deathSensors.add(s);
           this.spikes.push(sp);
         }
 
@@ -315,7 +327,8 @@
           p.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
           this.physics.add.collider(p, this.solids);
           for (const m of this.movers) this.physics.add.collider(p, m);
-          for (const sp of this.spikes) this.physics.add.overlap(p, sp, () => this.respawnPlayer(p));
+          // death 判定统一走 deathSensors（让旋转后的判定区也一致）
+          this.physics.add.overlap(p, this.deathSensors, () => this.respawnPlayer(p));
           return p;
         };
 
@@ -402,6 +415,17 @@
               sp._dir = -1;
             }
             sp.body.updateFromGameObject();
+
+            // 同步更新 death sensor 的位置和尺寸（角度不变，但 AABB 会随旋转维持一致）
+            if (sp._sensor?.body?.updateFromGameObject) {
+              const b = sp.getBounds();
+              sp._sensor.x = b.centerX;
+              sp._sensor.y = b.centerY;
+              sp._sensor.width = b.width;
+              sp._sensor.height = b.height;
+              if (sp._sensor.body.setSize) sp._sensor.body.setSize(b.width, b.height, true);
+              sp._sensor.body.updateFromGameObject();
+            }
           }
         }
 

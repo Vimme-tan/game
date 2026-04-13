@@ -156,8 +156,10 @@
     level5Json: "./assets/maps/singleplayer/level5/sinfive.json",
     level6Json: "./assets/maps/singleplayer/level6/sinsix.json",
     level7Json: "./assets/maps/singleplayer/level7/seven.json",
+    level8Json: "./assets/maps/singleplayer/level8/eight.json",
     raceLevel1Json: "./assets/maps/doubleplayer/level1/doubone.json",
     raceLevel2Json: "./assets/maps/doubleplayer/level2/doutwo.json",
+    raceLevel3Json: "./assets/maps/doubleplayer/level3/douthree.json",
     teamLevel1Json: "./assets/maps/teamupchallenges/level1/double1.json",
     teamLevel2Json: "./assets/maps/teamupchallenges/level2/double2.json",
     teamLevel3Json: "./assets/maps/teamupchallenges/level3/double3.json",
@@ -425,8 +427,8 @@
     for (let i = 1; i <= totalLevels; i++) {
       const btn = document.createElement("button");
       const unlocked =
-        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6 || i === 7)) ||
-        (state.mode === "race" && (i === 1 || i === 2)) ||
+        (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6 || i === 7 || i === 8)) ||
+        (state.mode === "race" && (i === 1 || i === 2 || i === 3)) ||
         (state.mode === "coop" && (i === 1 || i === 2 || i === 3 || i === 4)) ||
         (state.mode !== "single" && state.mode !== "race" && state.mode !== "coop" && i === 1);
       btn.className = "levelCell" + (unlocked ? "" : " locked");
@@ -749,6 +751,14 @@
       }
       return;
     }
+    if (state.mode === "single" && levelId === 8) {
+      if (window.SinglePlayerLevels?.startLevel8) {
+        await window.SinglePlayerLevels.startLevel8({ assets, state, ui, setLevelPlayLayout, destroyPhaser, api, refreshMe, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("第八关脚本未加载。");
+      }
+      return;
+    }
 
     if (state.mode === "race" && levelId === 1) {
       if (window.DoublePlayerLevels?.startRaceLevel1) {
@@ -763,6 +773,14 @@
         await window.DoublePlayerLevels.startRaceLevel2({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人竞速第二关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "race" && levelId === 3) {
+      if (window.DoublePlayerLevels?.startRaceLevel3) {
+        await window.DoublePlayerLevels.startRaceLevel3({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人竞速第三关脚本未加载。");
       }
       return;
     }

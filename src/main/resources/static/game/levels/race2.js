@@ -106,12 +106,16 @@
 
     const allLayers = Array.isArray(mapData.layers) ? mapData.layers : [];
     const tileLayers = allLayers.filter((l) => l && l.type === "tilelayer" && Array.isArray(l.data));
-    const objLayer = allLayers.find((l) => l && l.type === "objectgroup");
-    const objs = Array.isArray(objLayer?.objects) ? objLayer.objects : [];
+    // 竞速第二关：对象层可能不止一个，统一扁平化（否则 born1/born2 可能找不到 -> 看起来“没人物出生”）
+    const objs = allLayers
+      .filter((l) => l && l.type === "objectgroup" && Array.isArray(l.objects))
+      .flatMap((l) => l.objects || []);
     const hasPropName = (obj, key) =>
       Array.isArray(obj?.properties) && obj.properties.some((p) => String(p?.name || "").toLowerCase() === String(key || "").toLowerCase());
-    // 竞速第二关：使用 born1 / born2（兼容值为 false 的情况：只要属性名存在就视为出生点）
-    const born1Obj = objs.find((o) => propTrue(o.properties, "born1") || propTrue(o.properties, "bron1") || hasPropName(o, "born1") || hasPropName(o, "bron1")) || null;
+    // 竞速第二关：使用 born / born2（兼容值为 false 的情况：只要属性名存在就视为出生点）
+    const born1Obj =
+      objs.find((o) => propTrue(o.properties, "born") || hasPropName(o, "born") || propTrue(o.properties, "born1") || hasPropName(o, "born1") || propTrue(o.properties, "bron1") || hasPropName(o, "bron1")) ||
+      null;
     const born2Obj = objs.find((o) => propTrue(o.properties, "born2") || hasPropName(o, "born2")) || null;
     const touchObj = (n) => objs.find((o) => propTrue(o.properties, `touch${n}`) || String(o.name || "").toLowerCase() === `touch${n}`) || null;
     const t1 = touchObj(1);
@@ -202,6 +206,10 @@
           return img;
         };
 
+        // 刺尺寸统一（竞速2：向右变长为原来的两倍 -> 4 格宽，半格高）
+        const spikeW = tileW * 4;
+        const spikeH = tileH / 2;
+
         // 预先收集所有 solid 的 tile 坐标：用于“刺与墙重叠则隐藏”
         const solidCells = new Set();
         for (const layer of tileLayers) {
@@ -242,7 +250,9 @@
               p.death === true &&
               (p.rmove === true || p.lmove === true || p.upmove === true);
             const isFake = layerName === "two" && p.fake === true;
-            if (isWallInteractive || isSpikeInteractive || isFake) continue;
+            // 所有刺统一走“自定义大小显示 + death 判定区”，避免出现“刺大小没变化”
+            const isAnyDeath = p.death === true;
+            if (isWallInteractive || isSpikeInteractive || isFake || isAnyDeath) continue;
 
             const isWin = p.win === true;
             const img = drawTile(cx, cy, tile, isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH, isWin ? 30 : 5);
@@ -256,8 +266,6 @@
 
             if (p.solid === true) addStaticRect(this.solids, cx, cy);
             if (p.win === true) addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
-            // 刺与 solid 墙重叠的位置：不生成 death 判定（相当于隐藏）
-            if (p.death === true && !solidCells.has(`${col},${row}`)) addStaticRect(this.deathSensors, cx, cy, tileW * 2, tileH / 2);
           }
         }
         if (missingStaticKeys > 0) {
@@ -298,6 +306,34 @@
           return o;
         };
 
+        // 所有静态刺（不带移动属性）统一在这里生成：显示尺寸 + death 判定区
+        const spawnStaticSpike = (cx, cy, tile) => {
+          const img = spawnBodyImage(cx, cy, tile, spikeW, spikeH, 26, false);
+          // 纯展示：关闭碰撞体，仅用于显示（death 判定走 deathSensors）
+          if (img?.body) img.body.enable = false;
+          addStaticRect(this.deathSensors, cx, cy, spikeW, spikeH);
+          return img;
+        };
+        for (const layer of tileLayers) {
+          const data = layer.data;
+          for (let idx = 0; idx < mapW * mapH; idx++) {
+            const tile = resolveTileFromGid(data[idx]);
+            if (!tile) continue;
+            const p = tile.props || {};
+            if (p.death !== true) continue;
+            const col = idx % mapW;
+            const row = Math.floor(idx / mapW);
+            if (solidCells.has(`${col},${row}`)) continue; // 重叠在墙里的刺隐藏
+            const isSpikeInteractive =
+              (String(layer.name || "").toLowerCase() === "three" || String(layer.name || "").toLowerCase() === "four") &&
+              (p.rmove === true || p.lmove === true || p.upmove === true);
+            if (isSpikeInteractive) continue; // 动态刺由后续逻辑生成
+            const cx = col * tileW + tileW / 2;
+            const cy = row * tileH + tileH / 2;
+            spawnStaticSpike(cx, cy, tile);
+          }
+        }
+
         // two layer moving/trigger walls + fake
         if (layerTwo) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
@@ -317,6 +353,7 @@
             }
 
             if (p.solid !== true) continue;
+            // 水平往返平台：solid + lmove（按你的新需求：先向右 14 格，再向左 14 格，周期运动）
             if (p.lmove === true) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
               this.oscLR.add(o);
@@ -375,6 +412,7 @@
             onUpdate: () => o.body.updateFromGameObject(),
           });
         }
+        // fake 墙体：先向下 14 格后再向上 14 格（虚假，不可站立）
         for (const img of this.fakeVisuals) {
           this.tweens.add({
             targets: img,
@@ -386,10 +424,25 @@
           });
         }
 
-        // spikes in three/four
-        // 按你的要求：刺尺寸“向右变长为原来的两倍”（在原本 2 格宽基础上 -> 4 格宽），高度保持半格
-        const spikeW = tileW * 4;
-        const spikeH = tileH / 2;
+        // spikes in three/four（动态刺）
+        const attachSensor = (o) => {
+          const b = o.getBounds();
+          const s = this.add.rectangle(b.centerX, b.centerY, b.width, b.height, 0xff0000, 0);
+          this.physics.add.existing(s, true);
+          o._sensor = s;
+          this.deathSensors.add(s);
+          return s;
+        };
+        const syncSensor = (o) => {
+          const s = o?._sensor;
+          if (!o || !s?.body) return;
+          const b = o.getBounds();
+          s.x = b.centerX;
+          s.y = b.centerY;
+          if (s.body.setSize) s.body.setSize(b.width, b.height, true);
+          s.body.updateFromGameObject();
+        };
+
         const spawnSpike = (cx, cy, tile, rotationDeg, group) => {
           const o = spawnBodyImage(cx, cy, tile, spikeW, spikeH, 26, true);
           o.setAngle(rotationDeg);
@@ -401,7 +454,9 @@
             o.body.immovable = true;
           }
           group.add(o);
-          addStaticRect(this.deathSensors, cx, cy, spikeW, spikeH);
+          // 动态刺：判定区要跟随移动，所以用独立 sensor，并在 tween/onUpdate 时同步
+          if (o.body) o.body.enable = false; // 关闭自身碰撞体，只用 sensor 做死亡判定
+          attachSensor(o);
           return o;
         };
         const gatherSpikes = (layer, which) => {
@@ -441,6 +496,7 @@
 
         const mkPlayer = (x, y) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
+          p.setDepth(1000); // 永远显示在最上层（避免被地图 tile 覆盖导致“看不到人物”）
           p.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
           p.body.setCollideWorldBounds(true);
           p.body.setSize(p.displayWidth, p.displayHeight, false);
@@ -537,12 +593,74 @@
           }
         };
 
-        const flyRight = (targets, speed = 240) => {
-          for (const o of targets) {
-            if (!o?.body) continue;
-            o.body.moves = true;
-            o.body.setVelocityX(speed);
-          }
+        const moveRightOnce = (targets, tiles, key, destroyAfter = false) => {
+          oneShot(key, () => {
+            for (const o of targets) {
+              if (!o) continue;
+              this.tweens.add({
+                targets: o,
+                x: o.x + tileW * tiles,
+                duration: 520,
+                ease: "Sine.easeInOut",
+                onUpdate: () => syncSensor(o),
+                onComplete: () => {
+                  if (destroyAfter) {
+                    o._sensor?.destroy?.();
+                    o.destroy?.();
+                  }
+                },
+              });
+            }
+          });
+        };
+
+        const up1WaitRight20Disappear = (targets, key) => {
+          oneShot(key, () => {
+            for (const o of targets) {
+              if (!o) continue;
+              this.tweens.add({
+                targets: o,
+                y: o.y - tileH * 1,
+                duration: 160,
+                ease: "Sine.easeInOut",
+                onUpdate: () => syncSensor(o),
+                onComplete: () => {
+                  this.time.delayedCall(1000, () => {
+                    this.tweens.add({
+                      targets: o,
+                      x: o.x + tileW * 20,
+                      duration: 520,
+                      ease: "Sine.easeInOut",
+                      onUpdate: () => syncSensor(o),
+                      onComplete: () => {
+                        o._sensor?.destroy?.();
+                        o.destroy?.();
+                      },
+                    });
+                  });
+                },
+              });
+            }
+          });
+        };
+
+        const left6Disappear = (targets, key) => {
+          oneShot(key, () => {
+            for (const o of targets) {
+              if (!o) continue;
+              this.tweens.add({
+                targets: o,
+                x: o.x - tileW * 6,
+                duration: 420,
+                ease: "Sine.easeInOut",
+                onUpdate: () => syncSensor(o),
+                onComplete: () => {
+                  o._sensor?.destroy?.();
+                  o.destroy?.();
+                },
+              });
+            }
+          });
         };
         const flyLeftShort = (targets, tiles = 6) => {
           const dx = tileW * tiles;
@@ -573,73 +691,36 @@
           this.physics.add.overlap(this.p2, s5, fn);
         }
         if (s2) {
-          const fn = () => oneShot("touch2", () => flyRight(this.spikesR3.getChildren(), 240));
+          const fn = () => moveRightOnce(this.spikesR3.getChildren(), 35, "touch2", false);
           this.physics.add.overlap(this.p1, s2, fn);
           this.physics.add.overlap(this.p2, s2, fn);
         }
         if (s6) {
-          const fn = () => oneShot("touch6", () => flyRight(this.spikesR4.getChildren(), 240));
+          const fn = () => moveRightOnce(this.spikesR4.getChildren(), 35, "touch6", false);
           this.physics.add.overlap(this.p1, s6, fn);
           this.physics.add.overlap(this.p2, s6, fn);
         }
         if (s3) {
-          const fn = () =>
-            oneShot("touch3", () => {
-              const list = this.spikesUp3.getChildren();
-              for (const o of list) {
-                if (!o?.body) continue;
-                this.tweens.add({
-                  targets: o,
-                  y: o.y - tileH * 1,
-                  duration: 180,
-                  ease: "Sine.easeInOut",
-                  onUpdate: () => o.body.updateFromGameObject(),
-                  onComplete: () => {
-                    this.time.delayedCall(1000, () => {
-                      if (!o?.body) return;
-                      o.body.setVelocityX(240);
-                    });
-                  },
-                });
-              }
-            });
+          const fn = () => up1WaitRight20Disappear(this.spikesUp3.getChildren(), "touch3");
           this.physics.add.overlap(this.p1, s3, fn);
           this.physics.add.overlap(this.p2, s3, fn);
         }
         if (s7) {
-          const fn = () =>
-            oneShot("touch7", () => {
-              const list = this.spikesUp4.getChildren();
-              for (const o of list) {
-                if (!o?.body) continue;
-                this.tweens.add({
-                  targets: o,
-                  y: o.y - tileH * 1,
-                  duration: 180,
-                  ease: "Sine.easeInOut",
-                  onUpdate: () => o.body.updateFromGameObject(),
-                  onComplete: () => {
-                    this.time.delayedCall(1000, () => {
-                      if (!o?.body) return;
-                      o.body.setVelocityX(240);
-                    });
-                  },
-                });
-              }
-            });
+          const fn = () => up1WaitRight20Disappear(this.spikesUp4.getChildren(), "touch7");
           this.physics.add.overlap(this.p1, s7, fn);
           this.physics.add.overlap(this.p2, s7, fn);
         }
         if (s4) {
-          const fn = () => oneShot("touch4", () => flyLeftShort(this.spikesL3.getChildren(), 6));
+          const fn = () => left6Disappear(this.spikesL3.getChildren(), "touch4");
           this.physics.add.overlap(this.p1, s4, fn);
           this.physics.add.overlap(this.p2, s4, fn);
         }
         if (s8) {
-          const fn = () => oneShot("touch8", () => flyLeftShort(this.spikesL4.getChildren(), 6));
+          const fn = () => left6Disappear(this.spikesL4.getChildren(), "touch8");
           this.physics.add.overlap(this.p1, s8, fn);
           this.physics.add.overlap(this.p2, s8, fn);
         }
+        // （旧逻辑）touch3/7/4/8 的实现已由上面的新规格逻辑替换
 
         // win: either player touches win ends level
         const winNow = () => {
@@ -668,9 +749,11 @@
         if (!this.p1?.body || !this.p2?.body) return;
         if (this.finished) return;
 
-        const vb = this.cameras.main.worldView;
-        const hitVb = (b) => b.bottom >= vb.bottom - 2 || b.top <= vb.top + 2 || b.left <= vb.left + 2 || b.right >= vb.right - 2;
-        if (!this.dead1 && hitVb(this.p1.getBounds())) {
+        // 掉出地图边界才重生（原先用 camera.worldView 会导致“看起来没出生/瞬间死亡”）
+        const outOfMap = (p) =>
+          !!p &&
+          (p.x < -tileW || p.x > worldW + tileW || p.y < -tileH || p.y > worldH + tileH);
+        if (!this.dead1 && outOfMap(this.p1)) {
           this.dead1 = true;
           this.p1.body.setVelocity(0, 0);
           this.time.delayedCall(520, () => {
@@ -680,7 +763,7 @@
             this.p1.body.setVelocity(0, 0);
           });
         }
-        if (!this.dead2 && hitVb(this.p2.getBounds())) {
+        if (!this.dead2 && outOfMap(this.p2)) {
           this.dead2 = true;
           this.p2.body.setVelocity(0, 0);
           this.time.delayedCall(520, () => {
