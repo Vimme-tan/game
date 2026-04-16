@@ -280,7 +280,10 @@
             const isWin = p.win === true;
             const isRmove = p.rmove === true;
             const isTouchKey = p.touch === true;
-            const isBomb = p.death2 === true && p.falling === true && (p.visible === true || p.visibIe === true);
+            // 炸弹：部分 tsx（例如 dung2）没有给 bomb tile 配置 properties，
+            // 这里用“属性优先 + 贴图名兜底”识别，保证炸弹一定会走“初始隐藏”逻辑。
+            const imgName = String(tile.imageSource || "").toLowerCase();
+            const isBomb = (p.death2 === true && p.falling === true) || imgName.includes("bomb");
 
             // render base tile unless we spawn it as object
             const asObj = isTouchKey || isBomb || (isSolid && isRmove) || isDeath;
@@ -310,6 +313,9 @@
               this.dynamicDeadly.add(o);
               // 需求：刺集体向右移动 1 格
               o.x += tileW * 1;
+              // bug汇总：刺向左移动半格，向下移动 0.3 格（在现有基础上微调）
+              o.x -= tileW * 0.5;
+              o.y += tileH * 0.3;
               if (o.body?.updateFromGameObject) o.body.updateFromGameObject();
 
               // death 判定区：与刺绑定，并同步到移动后位置
@@ -448,6 +454,12 @@
           }
         };
 
+        // 记录会移动的平台，用于“载人”（人物站上去不会掉）
+        this._carryPlatforms = [];
+        for (const w of oneRmoveWalls) this._carryPlatforms.push(w);
+        for (const w of twoWallsRmove) this._carryPlatforms.push(w);
+        for (const w of threeWallsRmove) this._carryPlatforms.push(w);
+
         // move1：three 层 rmove 属性墙迅速右移 2 格
         if (sensors.move1) {
           this.physics.add.overlap(this.player, sensors.move1, () => {
@@ -482,7 +494,10 @@
           this.physics.add.overlap(this.player, sensors.move2, () => {
             once("move2", () => {
               // 需求：触发后才显示；适当速度，能跳跃躲开
-              activateAndMove(oneDeathMoveLeft, -(worldW + tileW * 10), 0, 1150, (o) => {
+              const moveTiles = (worldW + tileW * 10) / tileW;
+              // 速度适中：按距离动态算时长，避免“太快来不及躲”
+              const dur = Math.max(2600, Math.round(moveTiles * 220));
+              activateAndMove(oneDeathMoveLeft, -(worldW + tileW * 10), 0, dur, (o) => {
                 try {
                   o._sensor?.destroy?.();
                   o.destroy();
@@ -549,6 +564,34 @@
       },
       update: function () {
         if (!this.player?.body || this.finished) return;
+
+        // 可移动平台“载人”：人物站在平台上时，平台移动多少，人物就跟随多少（避免掉下去/穿透）
+        if (Array.isArray(this._carryPlatforms) && this._carryPlatforms.length) {
+          const carryIfOn = (plat, dx, dy) => {
+            if (!dx && !dy) return;
+            const p = this.player;
+            if (!p?.body || !plat) return;
+            if (!(p.body.blocked.down || p.body.touching.down)) return;
+            const pb = p.getBounds();
+            const b = plat.getBounds ? plat.getBounds() : null;
+            if (!b) return;
+            const footY = pb.bottom;
+            if (footY < b.top - 3 || footY > b.top + 14) return;
+            if (pb.right < b.left + 2 || pb.left > b.right - 2) return;
+            p.x += dx;
+            p.y += dy;
+          };
+          for (const plat of this._carryPlatforms) {
+            if (!plat) continue;
+            const lastX = typeof plat._lastX === "number" ? plat._lastX : plat.x;
+            const lastY = typeof plat._lastY === "number" ? plat._lastY : plat.y;
+            const dx = plat.x - lastX;
+            const dy = plat.y - lastY;
+            plat._lastX = plat.x;
+            plat._lastY = plat.y;
+            if (dx || dy) carryIfOn(plat, dx, dy);
+          }
+        }
 
         const mobile = window.__PT_isMobileControl?.() === true;
         const speed = tuning.speed;

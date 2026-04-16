@@ -207,6 +207,7 @@
         };
 
         // 刺尺寸统一（竞速2：向右变长为原来的两倍 -> 4 格宽，半格高）
+        const isTrue = (v) => v === true || v === 1 || String(v || "").toLowerCase() === "true";
         const spikeW = tileW * 4;
         const spikeH = tileH / 2;
 
@@ -218,7 +219,7 @@
             const tile = resolveTileFromGid(data[idx]);
             if (!tile) continue;
             const p = tile.props || {};
-            if (p.solid === true) {
+            if (isTrue(p.solid)) {
               const col = idx % mapW;
               const row = Math.floor(idx / mapW);
               solidCells.add(`${col},${row}`);
@@ -243,18 +244,18 @@
             // We'll spawn physics-enabled versions for certain interactive tiles; skip their base visual here.
             const isWallInteractive =
               layerName === "two" &&
-              p.solid === true &&
-              (p.lmove === true || p.dmove === true || p.upmove === true || p.upm === true || p.rmove === true);
+              isTrue(p.solid) &&
+              (isTrue(p.lmove) || isTrue(p.dmove) || isTrue(p.upmove) || isTrue(p.upm) || isTrue(p.rmove));
             const isSpikeInteractive =
               (layerName === "three" || layerName === "four") &&
-              p.death === true &&
-              (p.rmove === true || p.lmove === true || p.upmove === true);
-            const isFake = layerName === "two" && p.fake === true;
+              isTrue(p.death) &&
+              (isTrue(p.rmove) || isTrue(p.lmove) || isTrue(p.upmove));
+            const isFake = layerName === "two" && isTrue(p.fake);
             // 所有刺统一走“自定义大小显示 + death 判定区”，避免出现“刺大小没变化”
-            const isAnyDeath = p.death === true;
+            const isAnyDeath = isTrue(p.death);
             if (isWallInteractive || isSpikeInteractive || isFake || isAnyDeath) continue;
 
-            const isWin = p.win === true;
+            const isWin = isTrue(p.win);
             const img = drawTile(cx, cy, tile, isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH, isWin ? 30 : 5);
             if (!img) {
               // Fallback so the map is still visible even if an image URL mapping is wrong.
@@ -264,8 +265,8 @@
                 .setDepth(isWin ? 30 : 5);
             }
 
-            if (p.solid === true) addStaticRect(this.solids, cx, cy);
-            if (p.win === true) addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
+            if (isTrue(p.solid)) addStaticRect(this.solids, cx, cy);
+            if (isTrue(p.win)) addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
           }
         }
         if (missingStaticKeys > 0) {
@@ -308,6 +309,8 @@
 
         // 所有静态刺（不带移动属性）统一在这里生成：显示尺寸 + death 判定区
         const spawnStaticSpike = (cx, cy, tile) => {
+          // 竞速：刺集体向右移动 1 格
+          cx += tileW * 1;
           const img = spawnBodyImage(cx, cy, tile, spikeW, spikeH, 26, false);
           // 纯展示：关闭碰撞体，仅用于显示（death 判定走 deathSensors）
           if (img?.body) img.body.enable = false;
@@ -320,13 +323,13 @@
             const tile = resolveTileFromGid(data[idx]);
             if (!tile) continue;
             const p = tile.props || {};
-            if (p.death !== true) continue;
+            if (!isTrue(p.death)) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             if (solidCells.has(`${col},${row}`)) continue; // 重叠在墙里的刺隐藏
             const isSpikeInteractive =
               (String(layer.name || "").toLowerCase() === "three" || String(layer.name || "").toLowerCase() === "four") &&
-              (p.rmove === true || p.lmove === true || p.upmove === true);
+              (isTrue(p.rmove) || isTrue(p.lmove) || isTrue(p.upmove));
             if (isSpikeInteractive) continue; // 动态刺由后续逻辑生成
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
@@ -345,42 +348,38 @@
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
 
-            if (p.fake === true) {
+            if (isTrue(p.fake)) {
               // visual only fake wall
               const img = drawTile(cx, cy, tile, tileW, tileH, 12);
               if (img) this.fakeVisuals.push(img);
               continue;
             }
 
-            if (p.solid !== true) continue;
-            // 水平往返平台：solid + lmove（按你的新需求：先向右 14 格，再向左 14 格，周期运动）
-            if (p.lmove === true) {
+            if (!isTrue(p.solid)) continue;
+            // 水平往返平台：solid + lmove / rmove（都按“左右往返”处理，避免出现“move 平台不动”）
+            if (isTrue(p.lmove) || isTrue(p.rmove)) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
               this.oscLR.add(o);
               continue;
             }
-            if (p.dmove === true) {
+            if (isTrue(p.dmove)) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
               this.oscDU.add(o);
               continue;
             }
-            if (p.upmove === true) {
+            if (isTrue(p.upmove)) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 24, true);
               o._oneShot = false;
               this.upmoveWalls.add(o);
               continue;
             }
-            if (p.upm === true) {
+            if (isTrue(p.upm)) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 24, true);
               o._oneShot = false;
               this.upmWalls.add(o);
               continue;
             }
-            if (p.rmove === true) {
-              // solid+rmove walls that move on touch? spec mentions touch triggers only for upmove/upm. keep static solid.
-              const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
-              this.solids.add(o);
-            }
+            // 其他 solid tiles：静态
           }
         }
 
@@ -444,6 +443,8 @@
         };
 
         const spawnSpike = (cx, cy, tile, rotationDeg, group) => {
+          // 竞速：刺集体向右移动 1 格
+          cx += tileW * 1;
           const o = spawnBodyImage(cx, cy, tile, spikeW, spikeH, 26, true);
           o.setAngle(rotationDeg);
           // Ensure spikes never fall unless we intentionally move them.
@@ -465,15 +466,15 @@
             const tile = resolveTileFromGid(layer.data[idx]);
             if (!tile) continue;
             const p = tile.props || {};
-            if (p.death !== true) continue;
+            if (!isTrue(p.death)) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             if (solidCells.has(`${col},${row}`)) continue; // 重叠在墙里的刺直接隐藏
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
-            if (which === "r" && p.rmove === true) spawnSpike(cx, cy, tile, 90, layer === layerThree ? this.spikesR3 : this.spikesR4);
-            if (which === "l" && p.lmove === true) spawnSpike(cx, cy, tile, -90, layer === layerThree ? this.spikesL3 : this.spikesL4);
-            if (which === "u" && p.upmove === true) spawnSpike(cx, cy, tile, 0, layer === layerThree ? this.spikesUp3 : this.spikesUp4);
+            if (which === "r" && isTrue(p.rmove)) spawnSpike(cx, cy, tile, 90, layer === layerThree ? this.spikesR3 : this.spikesR4);
+            if (which === "l" && isTrue(p.lmove)) spawnSpike(cx, cy, tile, -90, layer === layerThree ? this.spikesL3 : this.spikesL4);
+            if (which === "u" && isTrue(p.upmove)) spawnSpike(cx, cy, tile, 0, layer === layerThree ? this.spikesUp3 : this.spikesUp4);
           }
         };
         gatherSpikes(layerThree, "r");
@@ -773,6 +774,58 @@
             this.p2.body.setVelocity(0, 0);
           });
         }
+
+        // 可移动平台“载人”：人物站在平台上时，平台移动多少，人物就跟随多少（避免掉下去）
+        const carryIfOn = (p, plat, dx, dy) => {
+          if (!dx && !dy) return;
+          if (!p?.body || !plat) return;
+          const pb = p.getBounds();
+          const b = plat.getBounds ? plat.getBounds() : null;
+          if (!b) return;
+          // 脚底接近平台顶面，并且水平有交叠
+          const footY = pb.bottom;
+          // 不依赖 blocked.down：平台用 tween 移动时 touching 状态会不稳定
+          if (footY < b.top - 6 || footY > b.top + 18) return;
+          if (pb.right < b.left + 2 || pb.left > b.right - 2) return;
+          // 同步移动 sprite + body，保证形成“相对移动”
+          p.x += dx;
+          p.y += dy;
+          p.body.x += dx;
+          p.body.y += dy;
+        };
+        const carryFromGroup = (grp) => {
+          if (!grp?.getChildren) return;
+          for (const o of grp.getChildren()) {
+            if (!o) continue;
+            const lastX = typeof o._lastX === "number" ? o._lastX : o.x;
+            const lastY = typeof o._lastY === "number" ? o._lastY : o.y;
+            const dx = o.x - lastX;
+            const dy = o.y - lastY;
+            o._lastX = o.x;
+            o._lastY = o.y;
+            if (dx || dy) {
+              carryIfOn(this.p1, o, dx, dy);
+              carryIfOn(this.p2, o, dx, dy);
+            }
+          }
+        };
+        carryFromGroup(this.oscLR);
+        carryFromGroup(this.oscDU);
+        carryFromGroup(this.upmoveWalls);
+        carryFromGroup(this.upmWalls);
+
+        // 防穿墙兜底：对“用 tween 改位置”的平台，Arcade 有时会漏分离，这里每帧强制 collide 一次
+        //（否则会出现：平台移动时人物穿过去/掉下去）
+        try {
+          this.physics.world.collide(this.p1, this.oscLR);
+          this.physics.world.collide(this.p2, this.oscLR);
+          this.physics.world.collide(this.p1, this.oscDU);
+          this.physics.world.collide(this.p2, this.oscDU);
+          this.physics.world.collide(this.p1, this.upmoveWalls);
+          this.physics.world.collide(this.p2, this.upmoveWalls);
+          this.physics.world.collide(this.p1, this.upmWalls);
+          this.physics.world.collide(this.p2, this.upmWalls);
+        } catch {}
 
         const step = (p, keys, isP1) => {
           const tuning = this._tuning || { speed: 300, jumpV: -920 };

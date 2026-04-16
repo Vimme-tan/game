@@ -145,6 +145,20 @@
     const baseName = String(tsxSource || "").split("/").pop();
     const fallbackSameDir = baseName ? new URL(`./${baseName}`, baseUrl).toString() : null;
     const candidates = [tsxUrl, fallbackSameDir].filter(Boolean);
+
+    // Team-up challenges: tilesets are centralized in teamupchallenges/common/
+    // while json may sit either in teamupchallenges/ (double1.json, double2.json...)
+    // or in teamupchallenges/levelX/. If map exports tsx as "111.tsx", we need to
+    // fallback to ./common/111.tsx or ../common/111.tsx.
+    try {
+      const bu = String(new URL(baseUrl, window.location.href).toString()).toLowerCase();
+      if (baseName && bu.includes("/assets/maps/teamupchallenges/")) {
+        candidates.push(new URL(`./common/${baseName}`, baseUrl).toString());
+        candidates.push(new URL(`../common/${baseName}`, baseUrl).toString());
+        candidates.push(new URL(`../../common/${baseName}`, baseUrl).toString());
+      }
+    } catch {}
+
     let lastErr = null;
     for (const cand of candidates) {
       try {
@@ -323,7 +337,10 @@
         if (typeof ctx.destroyPhaser === "function") ctx.destroyPhaser();
       } catch {}
       try {
-        startLevelFn(ctx, levelId);
+        // 关卡启动函数很多是 async；这里必须接住 Promise，否则失败会变成“未处理拒绝”，导致整页状态异常
+        Promise.resolve(startLevelFn(ctx, levelId)).catch((e) => {
+          console.error("[restartLevel failed]", e);
+        });
       } catch (e) {
         console.error("[restartLevel failed]", e);
       }

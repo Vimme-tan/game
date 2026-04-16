@@ -134,6 +134,7 @@
 
         this.finished = false;
         this.triggered = new Set();
+        const isTrue = (v) => v === true || v === 1 || String(v || "").toLowerCase() === "true";
 
         const layerByName = (n) => tileLayers.find((l) => String(l.name || "").toLowerCase() === n) || null;
         const layerOne = layerByName("one");
@@ -248,33 +249,32 @@
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
 
-            if (p.fake === true) {
+            if (isTrue(p.fake)) {
               const img = drawTile(col, row, tile, tileW, tileH, 12);
               if (img) this.fakeVisuals.push(img);
               continue;
             }
 
-            // fake door: death2 kills
-            if (p.death2 === true) {
-              drawTile(col, row, tile, tileW * 2, tileH * 2, 30);
+            // fake door: death2 kills（图像隐藏，只保留判定）
+            if (isTrue(p.death2)) {
               addStaticRect(this.deathSensors, cx, cy, tileW * 2, tileH * 2);
               continue;
             }
 
-            if (p.win === true) {
+            if (isTrue(p.win)) {
               drawTile(col, row, tile, tileW * 2, tileH * 2, 30);
               addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
               continue;
             }
 
-            if (p.solid === true) {
-              if (p.rmove === true) {
+            if (isTrue(p.solid)) {
+              if (isTrue(p.rmove)) {
                 const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
                 this.oscR16.add(o);
-              } else if (p.rrmove === true) {
+              } else if (isTrue(p.rrmove)) {
                 const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
                 this.rrmoveTwo.add(o);
-              } else if (p.rmove2 === true) {
+              } else if (isTrue(p.rmove2)) {
                 const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
                 this.rmove2Two.add(o);
               } else {
@@ -299,17 +299,17 @@
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
 
-            if (p.fake === true) {
+            if (isTrue(p.fake)) {
               // 虚假墙：只显示，不生成碰撞体
               drawTile(col, row, tile, tileW, tileH, 16);
               continue;
             }
-            if (p.solid === true && p.rrmove === true) {
+            if (isTrue(p.solid) && isTrue(p.rrmove)) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 24, true);
               this.rrmoveThree.add(o);
               continue;
             }
-            if (p.solid === true && p.rmove2 === true) {
+            if (isTrue(p.solid) && isTrue(p.rmove2)) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 24, true);
               this.rmove2Three.add(o);
               continue;
@@ -357,8 +357,9 @@
               addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
               continue;
             }
-            if (p.death === true && p.rturn === true) {
-              const o = spawnBodyImage(cx, cy, tile, spikeW, spikeH, 28, false);
+            if (isTrue(p.death) && isTrue(p.rturn)) {
+              // 竞速：刺集体向右移动 1 格
+              const o = spawnBodyImage(cx + tileW * 1, cy, tile, spikeW, spikeH, 28, false);
               o.setAngle(90);
               o.body.enable = false; // death 判定走 sensor
               spikeGroup.add(o);
@@ -559,6 +560,43 @@
       update: function () {
         if (!this.p1?.body || !this.p2?.body) return;
         if (this.finished) return;
+
+        // 可移动平台“载人”：人物站在平台上时，平台移动多少，人物就跟随多少（避免掉下去）
+        const carryIfOn = (p, plat, dx, dy) => {
+          if (!dx && !dy) return;
+          if (!p?.body || !plat) return;
+          const pb = p.getBounds();
+          const b = plat.getBounds ? plat.getBounds() : null;
+          if (!b) return;
+          const footY = pb.bottom;
+          if (footY < b.top - 6 || footY > b.top + 18) return;
+          if (pb.right < b.left + 2 || pb.left > b.right - 2) return;
+          p.x += dx;
+          p.y += dy;
+          p.body.x += dx;
+          p.body.y += dy;
+        };
+        const carryFromGroup = (grp) => {
+          if (!grp?.getChildren) return;
+          for (const o of grp.getChildren()) {
+            if (!o) continue;
+            const lastX = typeof o._lastX === "number" ? o._lastX : o.x;
+            const lastY = typeof o._lastY === "number" ? o._lastY : o.y;
+            const dx = o.x - lastX;
+            const dy = o.y - lastY;
+            o._lastX = o.x;
+            o._lastY = o.y;
+            if (dx || dy) {
+              carryIfOn(this.p1, o, dx, dy);
+              carryIfOn(this.p2, o, dx, dy);
+            }
+          }
+        };
+        carryFromGroup(this.oscR16);
+        carryFromGroup(this.rrmoveTwo);
+        carryFromGroup(this.rmove2Two);
+        carryFromGroup(this.rrmoveThree);
+        carryFromGroup(this.rmove2Three);
 
         const tuning = this._tuning || { speed: 300, jumpV: -920 };
         const step = (p, keys, isP1) => {

@@ -173,6 +173,9 @@
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/sprites.png" width="1920" height="2048"/>
  </tile>
  <tile id="55">
+  <properties>
+   <property name="sword5" type="bool" value="true"/>
+  </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/swordStroked.png" width="192" height="96"/>
  </tile>
  <tile id="56">

@@ -230,6 +230,11 @@
           }
           const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
           const p = tile.props || {};
+          // 要求：所有带有 death2 的属性图像隐藏
+          if (p.death2 === true) {
+            img.setVisible(false);
+            return;
+          }
           const isTrap = p.death === true || p.death1 === true || p.death2 === true || p.death3 === true;
           if (isTrap) img.setDisplaySize(trapW, trapH);
           else img.setDisplaySize(tileW, tileH);

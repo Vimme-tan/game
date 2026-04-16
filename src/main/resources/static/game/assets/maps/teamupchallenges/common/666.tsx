@@ -56,6 +56,9 @@
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/doorStroked.png" width="160" height="192"/>
  </tile>
  <tile id="18">
+  <properties>
+   <property name="move2" type="bool" value="true"/>
+  </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/earthWall.png" width="64" height="64"/>
  </tile>
  <tile id="19">
@@ -170,12 +173,18 @@
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/sprites.png" width="1920" height="2048"/>
  </tile>
  <tile id="55">
+  <properties>
+   <property name="sword6" type="bool" value="true"/>
+  </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/swordStroked.png" width="192" height="96"/>
  </tile>
  <tile id="56">
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/torch.png" width="96" height="96"/>
  </tile>
  <tile id="57">
+  <properties>
+   <property name="death5" type="bool" value="true"/>
+  </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/trap.png" width="128" height="32"/>
  </tile>
  <tile id="58">

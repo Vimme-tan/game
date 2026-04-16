@@ -116,6 +116,7 @@
     const winRects = [];
     const movers = [];
     const spikes = [];
+    const isTrue = (v) => v === true || v === 1 || String(v || "").toLowerCase() === "true";
 
     for (const layer of tileLayers) {
       const layerName = String(layer.name || "").toLowerCase();
@@ -132,13 +133,13 @@
         const key = url ? imageToKey.get(url) : null;
         if (!key) continue;
 
-        const isSolid = p.solid === true;
-        const isWin = p.win === true;
-        const isDeath = p.death === true;
-        const isL = p.lmove === true;
-        const isR = p.rmove === true;
-        const isD = p.dmove === true;
-        const isU = p.upmove === true;
+        const isSolid = isTrue(p.solid);
+        const isWin = isTrue(p.win);
+        const isDeath = isTrue(p.death);
+        const isL = isTrue(p.lmove);
+        const isR = isTrue(p.rmove);
+        const isD = isTrue(p.dmove);
+        const isU = isTrue(p.upmove);
 
         const hasMove = isL || isR || isD || isU;
 
@@ -174,12 +175,13 @@
 
         // Spikes rotation and special spike-follow for rturn2
         if (isDeath) {
-          const angle = p.dturn ? 180 : p.rturn || p.rturn2 ? 90 : p.lturn ? -90 : 0;
+          const turn = isTrue(p.dturn) ? "dturn" : isTrue(p.lturn) ? "lturn" : isTrue(p.rturn2) ? "rturn2" : isTrue(p.rturn) ? "rturn" : "up";
+          const angle = turn === "dturn" ? 180 : turn === "lturn" ? -90 : turn === "rturn" || turn === "rturn2" ? 90 : 0;
           // rturn2 spikes should move together with upmove wall: move up 6 then down 6 periodically
-          if (p.rturn2 === true) {
-            spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: "y", dir: -1, min: -6, max: 6, angle, speedGroup: "upmove" });
+          if (isTrue(p.rturn2)) {
+            spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: "y", dir: -1, min: -6, max: 6, angle, speedGroup: "upmove", turn });
           } else {
-            spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: null, dir: 0, min: 0, max: 0, angle });
+            spikes.push({ x: col * tileW, y: (row + 1) * tileH, key, axis: null, dir: 0, min: 0, max: 0, angle, turn });
           }
           continue;
         }
@@ -221,12 +223,12 @@
             const tile = resolveTileFromGid(data[idx] || 0);
             if (!tile) continue;
             const p = tile.props || {};
-            const isMove = p.lmove === true || p.rmove === true || p.dmove === true || p.upmove === true || p.rturn2 === true;
-            const isDeath = p.death === true;
+            const isMove = isTrue(p.lmove) || isTrue(p.rmove) || isTrue(p.dmove) || isTrue(p.upmove) || isTrue(p.rturn2);
+            const isDeath = isTrue(p.death);
             // death spikes are spawned separately (for rotation / moving rturn2)
             if (isMove || isDeath) {
               // but keep win door visible
-              if (p.win === true) {
+              if (isTrue(p.win)) {
                 // fallthrough to draw
               } else {
                 continue;
@@ -239,7 +241,7 @@
             const key = url ? imageToKey.get(url) : null;
             if (!key) continue;
             const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
-            const isWin = p.win === true;
+            const isWin = isTrue(p.win);
             img.setDisplaySize(isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH);
           }
         }
@@ -289,16 +291,25 @@
           sp._max = s0.max;
           sp._speed = tileH * 3.2;
           sp.angle = Number(s0.angle || 0);
-          // 小修正：旋转后的刺在不同贴图下会出现偏移，按你的要求手动对齐
-          // dturn: 上移1格，右移2格；rturn: 上移2格；lturn: 上移1格
-          if (sp.angle === 180) {
-            sp.x += tileW * 2;
-            sp.y -= tileH * 1;
-          } else if (sp.angle === 90) {
+          // 竞速第一关：刺贴图对齐（按你最新要求）
+          // 这里不再做“网格吸附”，避免吸附抵消手动偏移，导致看起来“一直没对齐”。
+          // 偏移规则：
+          // - dturn（朝下）：上移2格，左移1格
+          // - up（无 turn，朝上）：左移2格
+          // - lturn（朝左）：左移1格
+          // - rturn / rturn2（朝右）：左移1格
+          const turn = String(s0.turn || "");
+          if (turn === "dturn" || sp.angle === 180) {
+            sp.x -= tileW * 1;
             sp.y -= tileH * 2;
-          } else if (sp.angle === -90) {
-            sp.y -= tileH * 1;
+          } else if (turn === "up" || sp.angle === 0) {
+            sp.x -= tileW * 2;
+          } else if (turn === "lturn" || sp.angle === -90) {
+            sp.x -= tileW * 1;
+          } else if (turn === "rturn" || turn === "rturn2" || sp.angle === 90) {
+            sp.x -= tileW * 1;
           }
+
           sp._baseX = sp.x;
           sp._baseY = sp.y;
 

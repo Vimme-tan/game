@@ -151,7 +151,7 @@
 
     // 人物参数统一走共享模块（方便全关统一调整）
     const tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 220, maxVy: 900, dragX: 900 };
-    const wallMoveSpeed = 120; // slower than player speed
+    const wallMoveSpeed = 520; // 迅速移动（rrmove+solid 墙体：加快速度）
     const scene = {
       preload: function () {
         this._loadErrors = [];
@@ -443,11 +443,25 @@
           for (const w of list) {
             if (!w || !w.body) continue;
             if (w._moveRemaining > 0) {
+              const prevX = w.x;
               const step = Math.min(stepMax, w._moveRemaining);
               w.x += w._moveDir * step;
               w._moveRemaining -= step;
               w.body.updateFromGameObject?.();
               w.body.setVelocityX(w._moveDir * wallMoveSpeed);
+              // 关键：墙体移动后立刻做一次碰撞分离，避免“高速穿墙”
+              this.physics.world.collide(this.player, w);
+              // 站在移动墙上时，跟随墙体位移（避免掉下去）
+              const dx = w.x - prevX;
+              if (dx && (this.player.body.blocked.down || this.player.body.touching.down)) {
+                const pb = this.player.getBounds();
+                const b = w.getBounds ? w.getBounds() : null;
+                if (b) {
+                  const footY = pb.bottom;
+                  const onTop = footY >= b.top - 3 && footY <= b.top + 14 && pb.right > b.left + 2 && pb.left < b.right - 2;
+                  if (onTop) this.player.x += dx;
+                }
+              }
               if (w._moveRemaining <= 0) {
                 w.body.setVelocityX(0);
                 if (w._destroyOnDone) {

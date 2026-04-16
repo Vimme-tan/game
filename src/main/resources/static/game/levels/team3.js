@@ -209,6 +209,11 @@
             return;
           }
           const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
+          // 要求：所有带有 death2 的属性图像隐藏
+          if (p.death2 === true) {
+            img.setVisible(false);
+            return;
+          }
           const isWin = p.bluewin1 === true || p.redwin1 === true;
           const isBomb = p.bomb1 === true || p.bomb === true;
           const isTrap = p.death === true || p.death1 === true || p.death2 === true || p.death3 === true || p.death4 === true;
@@ -308,6 +313,7 @@
               const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
               const key = url ? imageToKey.get(url) : null;
               const o = spawnImageOrRect(cx, cy, trapW, trapH, key, 35);
+              if (isDeath2) o.setVisible(false);
               freezeObj(o, true);
               this.deadlyDynamic.add(o);
               if (isDeath1) this.death1Objs.push(o);

@@ -111,6 +111,8 @@
     const movingBlocks = []; // lmove/rmove
     const layerDeath = { 4: [], 5: [], 6: [] }; // layerId -> spike sprites info built later
 
+    const isTrue = (v) => v === true || v === 1 || String(v || "").toLowerCase() === "true";
+
     // gather tiles
     for (const layer of tileLayers) {
       const layerId = Number(layer.id || 0);
@@ -123,10 +125,10 @@
         const cx = col * tileW + tileW / 2;
         const cy = row * tileH + tileH / 2;
         const p = tile.props || {};
-        const isL = p.lmove === true;
-        const isR = p.rmove === true;
+        const isL = isTrue(p.lmove);
+        const isR = isTrue(p.rmove);
         // Compatibility: some maps use `mov`/`move` to mean "move right".
-        const isMovR = p.mov === true || p.move === true;
+        const isMovR = isTrue(p.mov) || isTrue(p.move);
         if (isL || isR || isMovR) {
           const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
           const key = url ? imageToKey.get(url) : null;
@@ -184,7 +186,7 @@
             const tile = resolveTileFromGid(data[idx] || 0);
             if (!tile) continue;
             const p = tile.props || {};
-            if (p.lmove === true || p.rmove === true) continue;
+            if (isTrue(p.lmove) || isTrue(p.rmove) || isTrue(p.mov) || isTrue(p.move)) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
