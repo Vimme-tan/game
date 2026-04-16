@@ -58,12 +58,14 @@
  <tile id="18">
   <properties>
    <property name="move2" type="bool" value="true"/>
+   <property name="solid" type="bool" value="true"/>
   </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/earthWall.png" width="64" height="64"/>
  </tile>
  <tile id="19">
   <properties>
    <property name="empty4" type="bool" value="true"/>
+   <property name="solid" type="bool" value="true"/>
   </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/earthWall2.png" width="64" height="64"/>
  </tile>

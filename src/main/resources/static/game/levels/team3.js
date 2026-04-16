@@ -662,6 +662,9 @@
         step(this.p1, this.p1Keys, true);
         step(this.p2, this.p2Keys, false);
 
+        // Relative movement: carry players standing on moving blocks.
+        window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [{ getChildren: () => this.moveBlocks || [] }]);
+
         // cleanup: destroy moved death objects if way off-map (safety)
         for (const o of this.deadlyDynamic.getChildren()) {
           if (!o) continue;

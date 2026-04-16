@@ -1,9 +1,9 @@
-// Team-up Challenges Level 4 (double-player cooperation)
-// Exposes: window.TeamUpLevels.startTeamLevel4(ctx, levelId)
+// Team-up Challenges Level 6 (double6.json)
+// Exposes: window.TeamUpLevels.startTeamLevel6(ctx, levelId)
 (function () {
   window.TeamUpLevels = window.TeamUpLevels || {};
 
-  window.TeamUpLevels.startTeamLevel4 = async function startTeamLevel4(ctx, levelId) {
+  window.TeamUpLevels.startTeamLevel6 = async function startTeamLevel6(ctx, levelId) {
     const { assets, state, setLevelPlayLayout, destroyPhaser, onLevelWin } = ctx;
 
     state.currentLevelId = levelId;
@@ -15,14 +15,14 @@
       return;
     }
 
-    const mapUrl = new URL(assets.teamLevel4Json, window.location.href).toString();
+    const mapUrl = new URL(assets.teamLevel6Json, window.location.href).toString();
     let mapData;
     try {
       const r = await fetch(mapUrl, { credentials: "same-origin" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       mapData = await r.json();
     } catch (e) {
-      alert(`Team level 4 map load failed: ${e?.message || String(e)}`);
+      alert(`Team level 6 map load failed: ${e?.message || String(e)}`);
       return;
     }
 
@@ -44,10 +44,10 @@
       });
     }
 
-    const resolveTilesetImageUrl = (imageSource, baseUrl) => window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
-
     const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
     const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
+    const resolveTilesetImageUrl = (imageSource, baseUrl) => window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
+    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
     const tilesetInfos = [];
     for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
@@ -59,12 +59,12 @@
         const parsed = parseTsx(tsxText);
         tilesetInfos.push({ firstgid, source, ...parsed });
       } catch (e) {
-        console.warn("[team4] tileset load failed", source, e?.message || e);
+        console.warn("[team6] tileset load failed", source, e?.message || e);
       }
     }
     tilesetInfos.sort((a, b) => a.firstgid - b.firstgid);
     if (!tilesetInfos.length) {
-      alert("Team level 4 resource load failed: TSX tileset parse failed.");
+      alert("Team level 6 resource load failed: TSX tileset parse failed.");
       return;
     }
 
@@ -94,15 +94,9 @@
 
     const born1Obj = opObjects.find((o) => propTrue(o.properties, "born1") || propTrue(o.properties, "bron1")) || null;
     const born2Obj = opObjects.find((o) => propTrue(o.properties, "born2") || propTrue(o.properties, "bron2")) || null;
-    const touchObj = (name) => opObjects.find((o) => propTrue(o.properties, name) || String(o.name || "").toLowerCase() === name) || null;
 
-    const t0 = touchObj("touch");
-    const t1 = touchObj("touch1");
-    const t2 = touchObj("touch2");
-    const t3 = touchObj("touch3");
-    const t4 = touchObj("touch4");
-    const t5 = touchObj("touch5");
-    const t6 = touchObj("touch6");
+    const touchObj = (name) =>
+      opObjects.find((o) => propTrue(o.properties, name) || String(o.name || "").toLowerCase() === String(name).toLowerCase()) || null;
 
     function toSpawn(o, fallback) {
       if (!o) return fallback;
@@ -126,19 +120,16 @@
 
     const EXTRA_MAP_IMAGES = ["earthWall.png", "earthWall2.png", "trap.png", "bombStroked.png", "doorRedStroked.png", "doorStroked.png", "grey.png"];
     for (const f of EXTRA_MAP_IMAGES) {
-      const url = new URL(`../../map/${f}`, mapBase).toString();
+      const url = new URL(`../map/${f}`, mapBase).toString();
       if (!imageToKey.has(url)) imageToKey.set(url, `map_${f.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`);
     }
     const imgKeyByFile = (fileName) => {
-      const url = new URL(`../../map/${fileName}`, mapBase).toString();
+      const url = new URL(`../map/${fileName}`, mapBase).toString();
       return imageToKey.get(url) || null;
     };
 
-    const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
-
     const scene = {
       preload: function () {
-        this.load.on("loaderror", (file) => console.warn("loaderror:", file?.key, file?.src));
         this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
         this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
         this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
@@ -148,9 +139,9 @@
         state.levelScene = this;
         window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
         this.finished = false;
+        this.deathInvulnMs = 650;
         this.lastRespawnAt1 = -1e9;
         this.lastRespawnAt2 = -1e9;
-        this.deathInvulnMs = 650;
         this.triggered = new Set();
 
         this._tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
@@ -163,36 +154,7 @@
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
 
-        const addStaticRect = (group, x, y, w = tileW, h = tileH) => {
-          const r = this.add.rectangle(x, y, w, h, 0x000000, 0);
-          this.physics.add.existing(r, true);
-          group.add(r);
-          return r;
-        };
-
-        const layerByName = (n) => tileLayers.find((l) => String(l.name || "").toLowerCase() === String(n)) || null;
-        const layer1 = layerByName("1");
-        const layer3 = layerByName("3");
-
-        this.solids = this.physics.add.staticGroup();
-        this.deadlyStatic = this.physics.add.staticGroup();
-        this.deadlyDynamic = this.physics.add.group();
-
-        this.emptyBlocks = this.physics.add.staticGroup(); // layer3 empty removable
-        this.vanish1Blocks = this.physics.add.staticGroup(); // layer3 vanish1 removable
-        this.moveBlocks = this.physics.add.group(); // layer3 move blocks oscillate
-
-        this.layer1Stones = [];
-        this.layer1Stone1s = [];
-        this.layer1Death1s = [];
-        this.layer1Deaths = [];
-        this.layer1Death2s = [];
-        this.layer1Death3s = [];
-
-        // util: check prop presence even if bool=false in tsx
-        const hasProp = (props, name) => props && Object.prototype.hasOwnProperty.call(props, name);
-
-        const spawnImageOrRect = (cx, cy, w, h, key, depth = 15) => {
+        const spawnImageOrRect = (cx, cy, w, h, key, depth = 20) => {
           if (!key) {
             const r = this.add.rectangle(cx, cy, w, h, 0xff00ff, 0.2).setDepth(depth);
             this.physics.add.existing(r);
@@ -203,166 +165,169 @@
           img.setDepth(depth);
           return img;
         };
+
         const freezeObj = (o, immovable = true) => {
           if (!o?.body) return;
           if (o.setAllowGravity) o.setAllowGravity(false);
           o.body.allowGravity = false;
-          if (o.body.setAllowGravity) o.body.setAllowGravity(false);
           if (immovable) {
             if (o.setImmovable) o.setImmovable(true);
             o.body.immovable = true;
             if (o.body.setImmovable) o.body.setImmovable(true);
           }
           if (o.setVelocity) o.setVelocity(0, 0);
+          if (o.body.setVelocity) o.body.setVelocity(0, 0);
         };
 
-        const trapW = tileW * 2;
-        const trapH = tileH / 2;
+        // Base solids
+        this.solids = this.physics.add.staticGroup();
 
-        const drawStaticTile = (col, row, tile) => {
-          const cx = col * tileW + tileW / 2;
-          const cy = row * tileH + tileH / 2;
-          const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
-          const key = url ? imageToKey.get(url) : null;
-          if (!key) {
-            this.add.rectangle(cx, cy, tileW, tileH, 0x000000, 0.05);
-            return;
-          }
-          const img = this.add.image(col * tileW, (row + 1) * tileH, key).setOrigin(0, 1);
-          const p = tile.props || {};
-          // 要求：所有带有 death2 的属性图像隐藏
-          if (p.death2 === true) {
-            img.setVisible(false);
-            return;
-          }
-          const isTrap = p.death === true || p.death1 === true || p.death2 === true || p.death3 === true;
-          if (isTrap) img.setDisplaySize(trapW, trapH);
-          else img.setDisplaySize(tileW, tileH);
-        };
+        const deathW = tileW * 2;
+        const deathH = tileH / 2;
 
-        // Render all layers as visuals; build physics from specific properties.
-        const layers = [layer1, layer3].filter(Boolean);
-        for (const layer of layers) {
-          const data = layer.data;
-          const lname = String(layer.name || "");
-          for (let idx = 0; idx < mapW * mapH; idx++) {
-            const tile = resolveTileFromGid(data[idx] || 0);
-            if (!tile) continue;
-            const p = tile.props || {};
-            const col = idx % mapW;
-            const row = Math.floor(idx / mapW);
-            const cx = col * tileW + tileW / 2;
-            const cy = row * tileH + tileH / 2;
+        // hazards (initially disabled for those that appear later)
+        this.deathObjs = []; // death
+        this.death1Objs = []; // death1
+        this.death3Objs = []; // death3
+        this.death4Objs = []; // death4
+        this.death5Objs = []; // death5
 
-            // moving/hidden objects will be handled separately; for now, draw base tiles.
-            drawStaticTile(col, row, tile);
+        // moving platform (layer1 move): enable on combo
+        this.moveGroup = this.physics.add.group();
 
-            if (lname === "3") {
-              // layer3 objects: empty / vanish1 / move / death / win zones
-              if (p.death === true) {
-                addStaticRect(this.deadlyStatic, cx, cy, trapW, trapH);
-                continue;
-              }
-              if (p.move === true || p.move2 === true) {
-                const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
-                const key = url ? imageToKey.get(url) : null;
-                const o = spawnImageOrRect(cx, cy, tileW, tileH, key, 25);
-                freezeObj(o, true);
-                this.moveBlocks.add(o);
-                continue;
-              }
-              if (p.empty === true || p.empty1 === true) {
-                // removable solid block
-                addStaticRect(this.emptyBlocks, cx, cy, tileW, tileH);
-                continue;
-              }
-              if (p.vanish1 === true) {
-                addStaticRect(this.vanish1Blocks, cx, cy, tileW, tileH);
-                continue;
-              }
-              if (p.bluewin === true || p.bluewin1 === true) {
-                // create sensor (no visible)
-                const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0x00ff00, 0);
-                this.physics.add.existing(s, true);
-                s._win = "blue";
-                this.deadlyStatic.add(s); // reuse group container; won't kill because we never overlap on it
-                this._blueWinSensor = s;
-              }
-              if (p.redwin === true || p.redwin1 === true) {
-                const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0x00ff00, 0);
-                this.physics.add.existing(s, true);
-                s._win = "red";
-                this.deadlyStatic.add(s);
-                this._redWinSensor = s;
-              }
-            }
+        // vanish blocks (layer4 vanish1/vanish2): removed on touch2/touch4
+        this.vanish1Group = this.physics.add.staticGroup();
+        this.vanish2Group = this.physics.add.staticGroup();
 
-            if (lname === "1") {
-              // layer1: stones/deaths are activated by touches; spawn as hidden dynamic objects
-              const isStone = hasProp(p, "stone");
-              const isStone1 = hasProp(p, "stone1");
-              const isDeath1 = p.death1 === true;
-              const isDeath = p.death === true;
-              const isDeath2 = p.death2 === true;
-              const isDeath3 = p.death3 === true;
-              if (!(isStone || isStone1 || isDeath1 || isDeath || isDeath2 || isDeath3)) continue;
+        // win rectangles (from tiles)
+        this._winBlueRects = [];
+        this._winRedRects = [];
+        this._winActive = false;
 
-              let key = null;
-              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
-              key = url ? imageToKey.get(url) : null;
-              // death tiles always use trap for clarity
-              if (isDeath || isDeath1 || isDeath2 || isDeath3) key = imgKeyByFile("trap.png") || key;
-              const w = isStone || isStone1 ? tileW * 2 : trapW;
-              const h = isStone || isStone1 ? tileH * 1.2 : trapH;
-              const o = spawnImageOrRect(cx, cy, w, h, key, 35);
-              freezeObj(o, true);
-              o.setVisible(false);
-              if (o.body) o.body.enable = false;
-              this.deadlyDynamic.add(o);
-              if (isStone) this.layer1Stones.push(o);
-              if (isStone1) this.layer1Stone1s.push(o);
-              if (isDeath1) this.layer1Death1s.push(o);
-              if (isDeath) this.layer1Deaths.push(o);
-              if (isDeath2) this.layer1Death2s.push(o);
-              if (isDeath3) this.layer1Death3s.push(o);
-            }
-          }
-        }
+        // layer3 redwin / bluewin (disappear on combo)
+        this._layer3RedwinRects = [];
+        this._layer3BluewinRects = [];
 
-        // Base solids: any tile with prop solid in any visible layer
+        const layerNameIs = (layer, name) => String(layer?.name || "").toLowerCase() === String(name).toLowerCase();
+
+        // Scan tile layers and spawn needed objects
         for (const layer of tileLayers) {
-          const data = layer.data;
           const lname = String(layer.name || "");
+          const data = layer.data;
           for (let idx = 0; idx < mapW * mapH; idx++) {
-            const tile = resolveTileFromGid(data[idx] || 0);
+            const gid = data[idx] || 0;
+            const tile = resolveTileFromGid(gid);
             if (!tile) continue;
             const p = tile.props || {};
-            if (p.solid !== true) continue;
             const col = idx % mapW;
             const row = Math.floor(idx / mapW);
             const cx = col * tileW + tileW / 2;
             const cy = row * tileH + tileH / 2;
-            // Don't double-add for empty blocks (handled separately) or move blocks
-            if (lname === "3" && (p.empty === true || p.empty1 === true || p.move === true || p.move2 === true || p.vanish1 === true)) continue;
-            addStaticRect(this.solids, cx, cy, tileW, tileH);
+
+            const url = tile.imageSource ? resolveTilesetImageUrl(tile.imageSource, mapBase) : null;
+            const key = url ? imageToKey.get(url) : null;
+            const objKey = key || imgKeyByFile("earthWall.png") || imgKeyByFile("trap.png") || null;
+
+            // render passive solids
+            if (p.solid === true) {
+              // move/vanish/death hazards are handled separately below
+              if (p.move === true && lname === "1") continue;
+              if ((p.death === true || p.death1 === true || p.death4 === true) && lname === "1") continue;
+              if (p.vanish1 === true || p.vanish2 === true) continue;
+              if (p.death3 === true || p.death5 === true) continue;
+              const r = this.add.rectangle(cx, cy, tileW, tileH, 0x000000, 0);
+              this.physics.add.existing(r, true);
+              this.solids.add(r);
+              continue;
+            }
+
+            // Layer 1
+            if (lname === "1") {
+              if (p.move === true) {
+                const o = spawnImageOrRect(cx, cy, tileW, tileH, objKey, 20);
+                freezeObj(o, true);
+                o.setVisible(false);
+                if (o.body) o.body.enable = false;
+                this.moveGroup.add(o);
+              } else if (p.death === true) {
+                const o = spawnImageOrRect(cx, cy, deathW, deathH, objKey, 35);
+                freezeObj(o, true);
+                o.setVisible(false);
+                if (o.body) o.body.enable = false;
+                this.deathObjs.push(o);
+              } else if (p.death1 === true) {
+                const o = spawnImageOrRect(cx, cy, deathW, deathH, objKey, 35);
+                freezeObj(o, true);
+                o.setVisible(false);
+                if (o.body) o.body.enable = false;
+                this.death1Objs.push(o);
+              } else if (p.death4 === true) {
+                const o = spawnImageOrRect(cx, cy, deathW, deathH, objKey, 35);
+                freezeObj(o, true);
+                o.setVisible(false);
+                if (o.body) o.body.enable = false;
+                this.death4Objs.push(o);
+              } else if (p.redwin1 === true) {
+                const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0xff0000, 0);
+                this.physics.add.existing(s, true);
+                s.setVisible(false);
+                s.body.enable = false;
+                this._winRedRects.push(s);
+              } else if (p.bluewin1 === true) {
+                const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0x0000ff, 0);
+                this.physics.add.existing(s, true);
+                s.setVisible(false);
+                s.body.enable = false;
+                this._winBlueRects.push(s);
+              }
+            }
+
+            // Layer 3
+            if (lname === "3") {
+              if (p.death3 === true) {
+                const o = spawnImageOrRect(cx, cy, deathW, deathH, objKey, 35);
+                freezeObj(o, true);
+                o.setVisible(false);
+                if (o.body) o.body.enable = false;
+                this.death3Objs.push(o);
+              } else if (p.death5 === true) {
+                const o = spawnImageOrRect(cx, cy, deathW, deathH, objKey, 35);
+                freezeObj(o, true);
+                o.setVisible(false);
+                if (o.body) o.body.enable = false;
+                this.death5Objs.push(o);
+              } else if (p.redwin === true) {
+                const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0xff0000, 0);
+                this.physics.add.existing(s, true);
+                s.setVisible(true);
+                s.body.enable = false; // not used for win; only for disappearance
+                this._layer3RedwinRects.push(s);
+              } else if (p.bluewin === true) {
+                const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0x0000ff, 0);
+                this.physics.add.existing(s, true);
+                s.setVisible(true);
+                s.body.enable = false;
+                this._layer3BluewinRects.push(s);
+              }
+            }
+
+            // Layer 4 vanish blocks
+            if (lname === "4") {
+              if (p.vanish1 === true) {
+                const o = spawnImageOrRect(cx, cy, tileW, tileH, objKey || imgKeyByFile("earthWall.png"), 20);
+                freezeObj(o, true);
+                this.vanish1Group.add(o);
+              }
+              if (p.vanish2 === true) {
+                const o = spawnImageOrRect(cx, cy, tileW, tileH, objKey || imgKeyByFile("earthWall2.png"), 20);
+                freezeObj(o, true);
+                this.vanish2Group.add(o);
+              }
+            }
           }
         }
 
-        // Oscillate move blocks left/right 2 tiles forever.
-        const oscDx = tileW * 2;
-        for (const o of this.moveBlocks.getChildren()) {
-          this.tweens.add({
-            targets: o,
-            x: o.x + oscDx,
-            duration: 520,
-            ease: "Sine.easeInOut",
-            yoyo: true,
-            repeat: -1,
-            onUpdate: () => o?.body?.updateFromGameObject?.(),
-          });
-        }
-
-        // Players
+        // players
         const mkPlayer = (x, y, tint) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
@@ -391,33 +356,26 @@
         // colliders
         this.physics.add.collider(this.p1, this.solids);
         this.physics.add.collider(this.p2, this.solids);
-        this.physics.add.collider(this.p1, this.emptyBlocks);
-        this.physics.add.collider(this.p2, this.emptyBlocks);
-        this.physics.add.collider(this.p1, this.vanish1Blocks);
-        this.physics.add.collider(this.p2, this.vanish1Blocks);
-        for (const m of this.moveBlocks.getChildren()) {
-          this.physics.add.collider(this.p1, m);
-          this.physics.add.collider(this.p2, m);
-        }
+        this.physics.add.collider(this.p1, this.vanish1Group);
+        this.physics.add.collider(this.p2, this.vanish1Group);
+        this.physics.add.collider(this.p1, this.vanish2Group);
+        this.physics.add.collider(this.p2, this.vanish2Group);
+        this.physics.add.collider(this.p1, this.moveGroup);
+        this.physics.add.collider(this.p2, this.moveGroup);
 
+        // deadly overlap
+        this.deadlyGroup = this.physics.add.group();
+        for (const o of [...this.deathObjs, ...this.death1Objs, ...this.death3Objs, ...this.death4Objs, ...this.death5Objs]) this.deadlyGroup.add(o);
         const hitDeadly = (player) => {
           const isP1 = player === this.p1;
           const last = isP1 ? this.lastRespawnAt1 : this.lastRespawnAt2;
           if (this.time.now - last < this.deathInvulnMs) return;
           this.respawnPlayer(player);
         };
-        this.physics.add.overlap(this.p1, this.deadlyStatic, (p, obj) => {
-          if (obj?._win) return;
-          hitDeadly(p);
-        });
-        this.physics.add.overlap(this.p2, this.deadlyStatic, (p, obj) => {
-          if (obj?._win) return;
-          hitDeadly(p);
-        });
-        this.physics.add.overlap(this.p1, this.deadlyDynamic, () => hitDeadly(this.p1));
-        this.physics.add.overlap(this.p2, this.deadlyDynamic, () => hitDeadly(this.p2));
+        this.physics.add.overlap(this.p1, this.deadlyGroup, () => hitDeadly(this.p1));
+        this.physics.add.overlap(this.p2, this.deadlyGroup, () => hitDeadly(this.p2));
 
-        // Sensors
+        // Touch sensors
         const makeSensor = (obj) => {
           if (!obj) return null;
           const x = Number(obj.x || 0);
@@ -428,6 +386,7 @@
           this.physics.add.existing(s, true);
           return s;
         };
+
         const oneShot = (key, fn) => {
           if (this.triggered.has(key)) return;
           this.triggered.add(key);
@@ -440,101 +399,128 @@
           this.physics.add.overlap(this.p2, sensor, fire);
         };
 
-        const s0 = makeSensor(t0);
-        const s1 = makeSensor(t1);
-        const s2 = makeSensor(t2);
-        const s3 = makeSensor(t3);
-        const s4 = makeSensor(t4);
-        const s5 = makeSensor(t5);
-        const s6 = makeSensor(t6);
+        const sTouch = makeSensor(touchObj("touch"));
+        const sTouch1 = makeSensor(touchObj("touch1"));
+        const sTouch2 = makeSensor(touchObj("touch2"));
+        const sTouch3 = makeSensor(touchObj("touch3"));
+        const sTouch4 = makeSensor(touchObj("touch4"));
+        const sTouch5 = makeSensor(touchObj("touch5"));
+        const sTouch6 = makeSensor(touchObj("touch6"));
 
-        // touch: layer3 empty disappears
-        hook(s0, "touch", () => {
-          for (const o of this.emptyBlocks.getChildren()) o.destroy();
-        });
-
-        // touch1: layer1 stone down, deadly
-        hook(s1, "touch1", () => {
-          for (const o of this.layer1Stones) {
+        // touch: death appears
+        hook(sTouch, "t_death", () => {
+          for (const o of this.deathObjs) {
             o.setVisible(true);
             if (o.body) o.body.enable = true;
+          }
+        });
+        // touch1: death1 moves to most-left
+        hook(sTouch1, "t_death1_left", () => {
+          for (const o of this.death1Objs) {
+            o.setVisible(true);
+            if (o.body) o.body.enable = true;
+          }
+          if (!this.death1Objs.length) return;
+          const minX = Math.min(...this.death1Objs.map((o) => o.x));
+          for (const o of this.death1Objs) {
             this.tweens.add({
               targets: o,
-              y: o.y + tileH * 6,
-              duration: 700,
+              x: minX,
+              duration: 600,
               ease: "Sine.easeInOut",
               onUpdate: () => o?.body?.updateFromGameObject?.(),
             });
           }
         });
-
-        // touch2: layer1 stone1 down
-        hook(s2, "touch2", () => {
-          for (const o of this.layer1Stone1s) {
+        // touch2: vanish1 disappears; enable death3
+        hook(sTouch2, "t_touch2_vanish1_death3", () => {
+          for (const o of this.vanish1Group.getChildren()) o.destroy();
+          for (const o of this.death3Objs) {
             o.setVisible(true);
             if (o.body) o.body.enable = true;
+          }
+        });
+        // touch3: death4 appears
+        hook(sTouch3, "t_touch3_death4", () => {
+          for (const o of this.death4Objs) {
+            o.setVisible(true);
+            if (o.body) o.body.enable = true;
+          }
+        });
+        // touch4: vanish2 disappears; enable death5
+        hook(sTouch4, "t_touch4_vanish2_death5", () => {
+          for (const o of this.vanish2Group.getChildren()) o.destroy();
+          for (const o of this.death5Objs) {
+            o.setVisible(true);
+            if (o.body) o.body.enable = true;
+          }
+        });
+
+        // combo: touch5 + touch6 simultaneously (record by which player)
+        this._comboDone = false;
+        this._p1Touch5 = false;
+        this._p2Touch6 = false;
+        this._p1Touch6 = false;
+        this._p2Touch5 = false;
+
+        const tryCombo = () => {
+          if (this._comboDone) return;
+          const ok = (this._p1Touch5 && this._p2Touch6) || (this._p1Touch6 && this._p2Touch5);
+          if (!ok) return;
+          this._comboDone = true;
+          // layer3 redwin / bluewin disappear
+          for (const s of [...this._layer3RedwinRects, ...this._layer3BluewinRects]) s.destroy();
+          // enable move + win sensors
+          for (const o of this.moveGroup.getChildren()) {
+            o.setVisible(true);
+            if (o.body) o.body.enable = true;
+          }
+          const enableWinRects = (arr) => {
+            for (const s of arr) {
+              s.setVisible(true);
+              if (s.body) s.body.enable = true;
+            }
+          };
+          enableWinRects(this._winBlueRects);
+          enableWinRects(this._winRedRects);
+          this._winActive = true;
+          // start up/down tween for move platform
+          const dy = tileH * 2;
+          for (const o of this.moveGroup.getChildren()) {
             this.tweens.add({
               targets: o,
-              y: o.y + tileH * 6,
-              duration: 700,
+              y: o.y - dy,
+              duration: 520,
               ease: "Sine.easeInOut",
+              yoyo: true,
+              repeat: -1,
               onUpdate: () => o?.body?.updateFromGameObject?.(),
             });
           }
-        });
+        };
 
-        // touch3: death1 up 1
-        hook(s3, "touch3", () => {
-          for (const o of this.layer1Death1s) {
-            o.setVisible(true);
-            if (o.body) o.body.enable = true;
-            this.tweens.add({
-              targets: o,
-              y: o.y - tileH,
-              duration: 220,
-              ease: "Sine.easeInOut",
-              onUpdate: () => o?.body?.updateFromGameObject?.(),
-            });
-          }
-        });
+        if (sTouch5) {
+          this.physics.add.overlap(this.p1, sTouch5, () => {
+            this._p1Touch5 = true;
+            tryCombo();
+          });
+          this.physics.add.overlap(this.p2, sTouch5, () => {
+            this._p2Touch5 = true;
+            tryCombo();
+          });
+        }
+        if (sTouch6) {
+          this.physics.add.overlap(this.p1, sTouch6, () => {
+            this._p1Touch6 = true;
+            tryCombo();
+          });
+          this.physics.add.overlap(this.p2, sTouch6, () => {
+            this._p2Touch6 = true;
+            tryCombo();
+          });
+        }
 
-        // touch4: death appears
-        hook(s4, "touch4", () => {
-          for (const o of this.layer1Deaths) {
-            o.setVisible(true);
-            if (o.body) o.body.enable = true;
-          }
-        });
-
-        // touch5: death3 down 1
-        hook(s5, "touch5", () => {
-          for (const o of this.layer1Death3s) {
-            o.setVisible(true);
-            if (o.body) o.body.enable = true;
-            this.tweens.add({
-              targets: o,
-              y: o.y + tileH,
-              duration: 220,
-              ease: "Sine.easeInOut",
-              onUpdate: () => o?.body?.updateFromGameObject?.(),
-            });
-          }
-        });
-
-        // touch6: layer3 vanish1 disappears; layer1 death2 appears
-        hook(s6, "touch6", () => {
-          for (const o of this.vanish1Blocks.getChildren()) o.destroy();
-          for (const o of this.layer1Death2s) {
-            o.setVisible(true);
-            if (o.body) o.body.enable = true;
-          }
-        });
-
-        // Win: P1 in bluewin AND P2 in redwin simultaneously
-        this._p1InBlue = false;
-        this._p2InRed = false;
-
-        // inputs
+        // keyboard
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
@@ -545,27 +531,37 @@
         const p2Left = codeToPhaserKeyCode(kb.p2.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
         const p2Right = codeToPhaserKeyCode(kb.p2.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
         const p2Jump = codeToPhaserKeyCode(kb.p2.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
-
         this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
         this.p2Keys = this.input.keyboard.addKeys({ left: p2Left, right: p2Right, jump: p2Jump });
       },
+
       update: function () {
         if (!this.p1?.body || !this.p2?.body) return;
         if (this.finished) return;
 
-        // win check (tile sensors are rectangles stored on scene)
-        this._p1InBlue = false;
-        this._p2InRed = false;
-        if (this._blueWinSensor) {
-          if (Phaser.Geom.Intersects.RectangleToRectangle(this.p1.getBounds(), this._blueWinSensor.getBounds())) this._p1InBlue = true;
-        }
-        if (this._redWinSensor) {
-          if (Phaser.Geom.Intersects.RectangleToRectangle(this.p2.getBounds(), this._redWinSensor.getBounds())) this._p2InRed = true;
-        }
-        if (this._p1InBlue && this._p2InRed) {
-          this.finished = true;
-          if (typeof onLevelWin === "function") onLevelWin(levelId, { title: "合作完成", message: "两人同时到达终点！" });
-          return;
+        // Win check only after combo.
+        if (this._winActive) {
+          const pb1 = this.p1.getBounds();
+          const pb2 = this.p2.getBounds();
+          let p1InBlue = false;
+          let p2InRed = false;
+          for (const s of this._winBlueRects) {
+            if (Phaser.Geom.Intersects.RectangleToRectangle(pb1, s.getBounds())) {
+              p1InBlue = true;
+              break;
+            }
+          }
+          for (const s of this._winRedRects) {
+            if (Phaser.Geom.Intersects.RectangleToRectangle(pb2, s.getBounds())) {
+              p2InRed = true;
+              break;
+            }
+          }
+          if (p1InBlue && p2InRed) {
+            this.finished = true;
+            if (typeof onLevelWin === "function") onLevelWin(levelId, { title: "合作完成", message: "两人同时到达终点！" });
+            return;
+          }
         }
 
         // viewport boundary death -> respawn
@@ -590,11 +586,12 @@
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(jumpV);
         };
+
         step(this.p1, this.p1Keys, true);
         step(this.p2, this.p2Keys, false);
 
-        // Relative movement: carry players standing on moving blocks.
-        window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [this.moveBlocks]);
+        // Relative movement: carry players standing on moving `move` platform.
+        window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [this.moveGroup]);
       },
     };
 

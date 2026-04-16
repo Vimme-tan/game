@@ -87,7 +87,7 @@
          "name":"2",
          "opacity":1,
          "type":"tilelayer",
-         "visible":false,
+         "visible":true,
          "width":52,
          "x":0,
          "y":0
@@ -222,7 +222,7 @@
          "name":"4",
          "opacity":1,
          "type":"tilelayer",
-         "visible":false,
+         "visible":true,
          "width":52,
          "x":0,
          "y":0
@@ -312,7 +312,7 @@
          "name":"6",
          "opacity":1,
          "type":"tilelayer",
-         "visible":false,
+         "visible":true,
          "width":52,
          "x":0,
          "y":0

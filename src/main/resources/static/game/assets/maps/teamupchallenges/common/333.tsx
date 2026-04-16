@@ -3,6 +3,7 @@
  <grid orientation="orthogonal" width="1" height="1"/>
  <tile id="22">
   <properties>
+   <property name="solid" type="bool" value="true"/>
    <property name="vanish2" type="bool" value="true"/>
   </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/earthWall.png" width="64" height="64"/>
@@ -64,6 +65,7 @@
  <tile id="55">
   <properties>
    <property name="empty2" type="bool" value="true"/>
+   <property name="solid" type="bool" value="true"/>
   </properties>
   <image source="F:/下载/Tiled/Tiled/tiled/examples/sticker-knight/map/earthWall2.png" width="64" height="64"/>
  </tile>

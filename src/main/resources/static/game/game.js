@@ -179,6 +179,11 @@
     teamLevel2Json: "./assets/maps/teamupchallenges/double2.json",
     teamLevel3Json: "./assets/maps/teamupchallenges/double3.json",
     teamLevel4Json: "./assets/maps/teamupchallenges/double4.json",
+    teamLevel5Json: "./assets/maps/teamupchallenges/double5.json",
+    teamLevel6Json: "./assets/maps/teamupchallenges/double6.json",
+    teamLevel7Json: "./assets/maps/teamupchallenges/double7.json",
+    teamLevel8Json: "./assets/maps/teamupchallenges/double8.json",
+    teamLevel9Json: "./assets/maps/teamupchallenges/double9.json",
     characterFront: "./assets/character/front.png",
     characterLeft: "./assets/character/left.png",
     characterRight: "./assets/character/right.png",
@@ -444,7 +449,8 @@
       const unlocked =
         (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6 || i === 7 || i === 8)) ||
         (state.mode === "race" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5)) ||
-        (state.mode === "coop" && (i === 1 || i === 2 || i === 3 || i === 4)) ||
+        // Coop challenges (team-up) now implemented up to level 9
+        (state.mode === "coop" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6 || i === 7 || i === 8 || i === 9)) ||
         (state.mode !== "single" && state.mode !== "race" && state.mode !== "coop" && i === 1);
       btn.className = "levelCell" + (unlocked ? "" : " locked");
       btn.type = "button";
@@ -844,6 +850,47 @@
         await window.TeamUpLevels.startTeamLevel4({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人合作第四关脚本未加载。");
+      }
+      return;
+    }
+
+    if (state.mode === "coop" && levelId === 5) {
+      if (window.TeamUpLevels?.startTeamLevel5) {
+        await window.TeamUpLevels.startTeamLevel5({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第五关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 6) {
+      if (window.TeamUpLevels?.startTeamLevel6) {
+        await window.TeamUpLevels.startTeamLevel6({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第六关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 7) {
+      if (window.TeamUpLevels?.startTeamLevel7) {
+        await window.TeamUpLevels.startTeamLevel7({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第七关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 8) {
+      if (window.TeamUpLevels?.startTeamLevel8) {
+        await window.TeamUpLevels.startTeamLevel8({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第八关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "coop" && levelId === 9) {
+      if (window.TeamUpLevels?.startTeamLevel9) {
+        await window.TeamUpLevels.startTeamLevel9({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人合作第九关脚本未加载。");
       }
       return;
     }

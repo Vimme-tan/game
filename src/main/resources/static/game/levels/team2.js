@@ -625,6 +625,9 @@
         if (!this.dead2) this._stepPlayer(this.p2, this.p2Keys, false);
         else this.p2.setVelocityX(0);
 
+        // Relative movement: carry players standing on moving blocks.
+        window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [this.moveGroup, this.move1Group]);
+
         const p1InBlue = this._inGroup(this.p1, this.blueWins);
         const p2InRed = this._inGroup(this.p2, this.redWins);
         if (p1InBlue && p2InRed) {
