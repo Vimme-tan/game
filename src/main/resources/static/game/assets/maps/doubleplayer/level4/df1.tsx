@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<tileset version="1.10" tiledversion="1.12.1" name="dfive1" tilewidth="160" tileheight="192" tilecount="5" columns="0">
+<tileset version="1.10" tiledversion="1.12.1" name="df1" tilewidth="160" tileheight="192" tilecount="5" columns="0">
  <grid orientation="orthogonal" width="1" height="1"/>
  <tile id="0">
   <properties>
@@ -15,8 +15,8 @@
  </tile>
  <tile id="2">
   <properties>
-   <property name="lmove" type="bool" value="true"/>
    <property name="solid" type="bool" value="true"/>
+   <property name="updo" type="bool" value="true"/>
   </properties>
   <image source="../tiled/examples/sticker-knight/map/earthWall2.png" width="64" height="64"/>
  </tile>

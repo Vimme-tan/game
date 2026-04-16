@@ -367,6 +367,186 @@
     } catch {}
   }
 
+  // 通用：把“人物站在移动物体上”做成可复用逻辑
+  // 注意：不区分 move/lmove/rmove，调用方只要把“会移动的固体/平台对象组”传进来即可
+  function carryPlayersOnMovingObjects(scene, players, groups) {
+    if (!scene?.physics || !Array.isArray(players) || !players.length) return;
+    const carryIfOn = (p, plat, dx, dy) => {
+      if (!dx && !dy) return;
+      if (!p?.body || !plat?.getBounds) return;
+      const pb = p.getBounds();
+      const b = plat.getBounds();
+      // 判断玩家脚底是否落在平台顶部附近，且水平投影重叠
+      const footY = pb.bottom;
+      if (footY < b.top - 6 || footY > b.top + 18) return;
+      if (pb.right < b.left + 2 || pb.left > b.right - 2) return;
+
+      p.x += dx;
+      p.y += dy;
+      p.body.x += dx;
+      p.body.y += dy;
+    };
+
+    const allGroups = Array.isArray(groups) ? groups : [];
+    for (const grp of allGroups) {
+      if (!grp?.getChildren) continue;
+      for (const o of grp.getChildren()) {
+        if (!o) continue;
+        const lastX = typeof o._lastX === "number" ? o._lastX : o.x;
+        const lastY = typeof o._lastY === "number" ? o._lastY : o.y;
+        const dx = o.x - lastX;
+        const dy = o.y - lastY;
+        o._lastX = o.x;
+        o._lastY = o.y;
+        if (!dx && !dy) continue;
+
+        for (const p of players) carryIfOn(p, o, dx, dy);
+      }
+    }
+  }
+
+  function getObjectSensorMetrics(obj) {
+    const b = obj?.getBounds?.();
+    if (!b) return null;
+
+    let width = Number(b.width || 0);
+    let height = Number(b.height || 0);
+    const displayW = Number(obj?.displayWidth || obj?.width || width || 0);
+    const displayH = Number(obj?.displayHeight || obj?.height || height || 0);
+    const angleDeg =
+      typeof obj?.angle === "number"
+        ? obj.angle
+        : typeof obj?.rotation === "number"
+          ? (obj.rotation * 180) / Math.PI
+          : 0;
+    const quarterTurn = ((Math.round(angleDeg / 90) % 4) + 4) % 4;
+
+    // Arcade Physics 不支持真正的旋转矩形，这里对 90/270 度旋转做宽高互换，
+    // 让“旋转刺”的判定框至少在尺寸上与视觉方向一致。
+    if ((quarterTurn === 1 || quarterTurn === 3) && displayW > 0 && displayH > 0) {
+      width = displayH;
+      height = displayW;
+    }
+
+    return {
+      centerX: Number(b.centerX || obj?.x || 0),
+      centerY: Number(b.centerY || obj?.y || 0),
+      width,
+      height,
+    };
+  }
+
+  // 通用：判定区域（sensor）绑定到某个可移动物体
+  function attachRectSensorToObject(scene, obj, opts = {}) {
+    if (!scene || !obj) return null;
+    const enabled = opts.enabled !== false; // 默认启用
+    const color = typeof opts.color === "number" ? opts.color : 0xff0000;
+
+    const m = getObjectSensorMetrics(obj);
+    if (!m) return null;
+    const s = scene.add.rectangle(m.centerX, m.centerY, m.width, m.height, color, 0);
+    scene.physics.add.existing(s, true);
+    if (s.body) {
+      s.body.enable = !!enabled;
+      if (s.body.setSize) s.body.setSize(m.width, m.height, true);
+      if (s.body.updateFromGameObject) s.body.updateFromGameObject();
+    }
+    obj._sensor = s;
+    return s;
+  }
+
+  function syncRectSensorToObject(obj) {
+    const s = obj?._sensor;
+    if (!obj || !s?.body) return;
+    const m = getObjectSensorMetrics(obj);
+    if (!m) return;
+    s.x = m.centerX;
+    s.y = m.centerY;
+    // Arcade Physics 的矩形判定通常需要显式 setSize（避免 hitbox 没同步）
+    if (s.body.setSize) s.body.setSize(m.width, m.height, true);
+    // sensor 旋转：至少保持与对象旋转一致（更符合“旋转/移动同时判定区域同步”）
+    if (typeof obj.rotation === "number") s.rotation = obj.rotation;
+    if (s.body.updateFromGameObject) s.body.updateFromGameObject();
+  }
+
+  // 通用：对象 tween 时同步 body / sensor，适合移动刺、旋转刺、移动门、移动墙
+  function tweenObjectsWithBodyAndSensorSync(scene, targets, config = {}) {
+    if (!scene?.tweens) return null;
+    const list = (Array.isArray(targets) ? targets : [targets]).filter(Boolean);
+    if (!list.length) return null;
+
+    const userOnUpdate = typeof config.onUpdate === "function" ? config.onUpdate : null;
+    const userOnComplete = typeof config.onComplete === "function" ? config.onComplete : null;
+    const tweenConfig = { ...config, targets: list };
+    delete tweenConfig.onUpdate;
+    delete tweenConfig.onComplete;
+
+    return scene.tweens.add({
+      ...tweenConfig,
+      onUpdate: (tween, target, key, current, previous) => {
+        target?.body?.updateFromGameObject?.();
+        syncRectSensorToObject(target);
+        userOnUpdate?.(tween, target, key, current, previous);
+      },
+      onComplete: (tween, tweenTargets) => {
+        for (const target of list) {
+          target?.body?.updateFromGameObject?.();
+          syncRectSensorToObject(target);
+        }
+        userOnComplete?.(tween, tweenTargets);
+      },
+    });
+  }
+
+  // 通用：death spikes 与“solid 墙体”重叠时，临时隐藏/禁用判定
+  // 依赖关卡脚本维护：
+  //  - spike._deathBaseEnable：基础启用态（例如 lmove spikes 在触发前为 false）
+  //  - spike._deathBaseVisible：基础可见态
+  function updateDeathSpikesHideOnSolidOverlap(scene, spikeGroups, solidGroups) {
+    const allSpikeGroups = Array.isArray(spikeGroups) ? spikeGroups : [];
+    const allSolidGroups = Array.isArray(solidGroups) ? solidGroups : [];
+    if (!scene?.physics) return;
+
+    const rectsOverlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+    for (const sg of allSpikeGroups) {
+      if (!sg?.getChildren) continue;
+      for (const spike of sg.getChildren()) {
+        if (!spike?._sensor?.getBounds) continue;
+
+        const baseEnable = typeof spike._deathBaseEnable === "boolean" ? spike._deathBaseEnable : true;
+        const baseVisible = typeof spike._deathBaseVisible === "boolean" ? spike._deathBaseVisible : !!spike.visible;
+
+        // 基础态就不显示/不致死：直接保持
+        if (!baseEnable && !baseVisible) {
+          if (spike._sensor.body) spike._sensor.body.enable = false;
+          if (spike.setVisible) spike.setVisible(false);
+          continue;
+        }
+
+        const sb = spike._sensor.getBounds();
+        let overlapping = false;
+        for (const solidGrp of allSolidGroups) {
+          if (!solidGrp?.getChildren) continue;
+          for (const solidObj of solidGrp.getChildren()) {
+            if (!solidObj?.getBounds) continue;
+            const bb = solidObj.getBounds();
+            if (rectsOverlap(sb, bb)) {
+              overlapping = true;
+              break;
+            }
+          }
+          if (overlapping) break;
+        }
+
+        const enable = baseEnable && !overlapping;
+        const visible = baseVisible && !overlapping;
+        if (spike._sensor.body) spike._sensor.body.enable = !!enable;
+        if (spike.setVisible) spike.setVisible(!!visible);
+      }
+    }
+  }
+
   window.PTLevelShared = {
     codeToPhaserKeyCode,
     resolveTilesetImageUrl,
@@ -381,6 +561,11 @@
     disableBodiesBelowWorld,
     restartLevel,
     applyWorldGreyBackdrop,
+    carryPlayersOnMovingObjects,
+    attachRectSensorToObject,
+    syncRectSensorToObject,
+    tweenObjectsWithBodyAndSensorSync,
+    updateDeathSpikesHideOnSolidOverlap,
   };
 })();
 

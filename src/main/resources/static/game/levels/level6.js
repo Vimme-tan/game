@@ -228,7 +228,7 @@
           this.physics.add.existing(s, true);
           this.deadlyStatic.add(s);
         }
-        this.deadlyDynamic = this.physics.add.group();
+        this.deadlyDynamic = this.physics.add.staticGroup();
 
         this.movingWallsRr = []; // rrmove+solid in layer two
         this.movingWallsR = []; // rmove+solid in layer two/five
@@ -239,6 +239,7 @@
         this.spikesUumoveL4 = [];
         this.spikesUpmoveL5 = [];
         this.spikesUpmoveL2 = [];
+        this.dynamicSpikeObjects = [];
 
         const spawnDyn = (t) => {
           const x = t.cx;
@@ -276,10 +277,18 @@
             if (typeof b.setGravityY === "function") b.setGravityY(0);
             // 刺的碰撞体也按宽*2、高/2缩放（墙体保持默认）
             if (isSpike && typeof b.setSize === "function") b.setSize((tileW * 2) * 0.9, (tileH / 2) * 0.9, true);
+            if (isSpike) b.enable = false;
           }
           bodyObj._spawn = { x, y };
           bodyObj._props = t.props;
           bodyObj._layer = t.layerName;
+          if (isSpike) {
+            bodyObj._deathBaseEnable = false;
+            bodyObj._deathBaseVisible = false;
+            const sensor = window.PTLevelShared?.attachRectSensorToObject?.(this, bodyObj, { enabled: false, color: 0xff0000 });
+            if (sensor) this.deadlyDynamic.add(sensor);
+            this.dynamicSpikeObjects.push(bodyObj);
+          }
           return bodyObj;
         };
 
@@ -290,7 +299,6 @@
             if (p.rrmove === true) this.movingWallsRr.push(o);
             if (p.rmove === true) this.movingWallsR.push(o);
           } else if (t.isSpike) {
-            this.deadlyDynamic.add(o);
             if (t.layerName === "four") {
               if (p.upmove === true) this.spikesUpmoveL4.push(o);
               if (p.dmove === true) this.spikesDmoveL4.push(o);
@@ -378,19 +386,24 @@
             if (!o) continue;
             if (typeof o.setVisible === "function") o.setVisible(true);
             if (typeof o.setDepth === "function") o.setDepth(35); // visible, but still under walls (45)
+            o._deathBaseEnable = true;
+            o._deathBaseVisible = true;
+            if (o._sensor?.body) o._sensor.body.enable = true;
+            window.PTLevelShared?.syncRectSensorToObject?.(o);
           }
         };
         const moveTween = (targets, dx, dy, duration, destroyOnDone) => {
           for (const o of targets) {
             if (!o) continue;
-            this.tweens.add({
-              targets: o,
+            window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
               x: o.x + dx,
               y: o.y + dy,
               duration,
               ease: "Sine.easeInOut",
               onComplete: destroyOnDone
                 ? () => {
+                    if (o._sensor?.body) o._sensor.body.enable = false;
+                    o._sensor?.destroy?.();
                     if (o.body) o.body.enable = false;
                     o.destroy();
                   }
@@ -401,12 +414,13 @@
         const startFly = (targets, vx) => {
           for (const o of targets) {
             if (!o?.body) continue;
-            o.body.enable = true;
             o.body.setImmovable(true);
             o.body.setAllowGravity(false);
             o.body.allowGravity = false;
             o.body.moves = true;
             o.body.setVelocityX(vx);
+            if (o._sensor?.body) o._sensor.body.enable = true;
+            window.PTLevelShared?.syncRectSensorToObject?.(o);
           }
         };
 
@@ -440,15 +454,14 @@
         if (sTouch2) {
           this.physics.add.overlap(this.player, sTouch2, () =>
             oneShot("touch2", () => {
-              // dmove spikes: down 5 then left 2, then disappear (medium speed)
+              // dmove spikes：下移时同步旋转，一个左转 90 度，一个右转 90 度；随后左移并消失
               revealSpikes(this.spikesDmoveL4);
               let remaining = this.spikesDmoveL4.length;
               const startDmover = () => {
                 // dmover：等 dmove 全部消失后再出现/移动
                 revealSpikes(this.spikesDmoverL4);
                 for (const o of this.spikesDmoverL4) {
-                  this.tweens.add({
-                    targets: o,
+                  window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                     y: o.y + tileH * 5,
                     duration: 650,
                     ease: "Sine.easeInOut",
@@ -459,19 +472,21 @@
                   });
                 }
               };
-              for (const o of this.spikesDmoveL4) {
-                this.tweens.add({
-                  targets: o,
+              this.spikesDmoveL4.forEach((o, index) => {
+                const rotateBy = index % 2 === 0 ? -90 : 90;
+                window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                   y: o.y + tileH * 5,
+                  angle: (typeof o.angle === "number" ? o.angle : 0) + rotateBy,
                   duration: 650,
                   ease: "Sine.easeInOut",
                   onComplete: () => {
-                    this.tweens.add({
-                      targets: o,
+                    window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                       x: o.x - tileW * 2,
                       duration: 420,
                       ease: "Sine.easeInOut",
                       onComplete: () => {
+                        if (o._sensor?.body) o._sensor.body.enable = false;
+                        o._sensor?.destroy?.();
                         if (o.body) o.body.enable = false;
                         o.destroy();
                         remaining -= 1;
@@ -480,7 +495,7 @@
                     });
                   },
                 });
-              }
+              });
               if (this.spikesDmoveL4.length === 0) startDmover();
             })
           );
@@ -563,10 +578,13 @@
         }
 
         // moving spikes fly out cleanup (dynamic only)
-        for (const o of this.deadlyDynamic.getChildren()) {
+        for (const o of this.dynamicSpikeObjects) {
           if (!o?.body) continue;
-          if (!o.body.enable) continue;
+          if (!o.body.enable && !o._sensor?.body?.enable) continue;
+          window.PTLevelShared?.syncRectSensorToObject?.(o);
           if (o.x < -tileW * 2 || o.x > worldW + tileW * 2 || o.y > worldH + tileH * 2 || o.y < -tileH * 2) {
+            if (o._sensor?.body) o._sensor.body.enable = false;
+            o._sensor?.destroy?.();
             o.body.enable = false;
             o.destroy();
           }

@@ -172,6 +172,7 @@
     raceLevel1Json: "./assets/maps/doubleplayer/level1/doubone.json",
     raceLevel2Json: "./assets/maps/doubleplayer/level2/doutwo.json",
     raceLevel3Json: "./assets/maps/doubleplayer/level3/douthree.json",
+    raceLevel4Json: "./assets/maps/doubleplayer/level4/doufour.json",
     raceLevel5Json: "./assets/maps/doubleplayer/level5/doufive.json",
     // Team-up challenges: json files are under teamupchallenges/ (tilesets in teamupchallenges/common/)
     teamLevel1Json: "./assets/maps/teamupchallenges/double1.json",
@@ -442,7 +443,7 @@
       const btn = document.createElement("button");
       const unlocked =
         (state.mode === "single" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5 || i === 6 || i === 7 || i === 8)) ||
-        (state.mode === "race" && (i === 1 || i === 2 || i === 3 || i === 5)) ||
+        (state.mode === "race" && (i === 1 || i === 2 || i === 3 || i === 4 || i === 5)) ||
         (state.mode === "coop" && (i === 1 || i === 2 || i === 3 || i === 4)) ||
         (state.mode !== "single" && state.mode !== "race" && state.mode !== "coop" && i === 1);
       btn.className = "levelCell" + (unlocked ? "" : " locked");
@@ -795,6 +796,14 @@
         await window.DoublePlayerLevels.startRaceLevel3({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
       } else {
         alert("双人竞速第三关脚本未加载。");
+      }
+      return;
+    }
+    if (state.mode === "race" && levelId === 4) {
+      if (window.DoublePlayerLevels?.startRaceLevel4) {
+        await window.DoublePlayerLevels.startRaceLevel4({ assets, state, ui, setLevelPlayLayout, destroyPhaser, onLevelWin, showWinDialog, hideWinDialog }, levelId);
+      } else {
+        alert("双人竞速第四关脚本未加载。");
       }
       return;
     }
