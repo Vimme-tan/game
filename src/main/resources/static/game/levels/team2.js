@@ -166,10 +166,13 @@
       o.setDepth?.(opts?.depth ?? 10);
       o.setDisplaySize?.(w, h);
       if (o.body) {
+        o.setAllowGravity?.(false);
         o.body.setAllowGravity(false);
-        o.body.setImmovable(true);
+        o.setImmovable?.(true);
+        o.body.setImmovable?.(true);
         o.body.moves = opts?.moves === true;
         o.body.setVelocity(0, 0);
+        o.body.updateFromGameObject?.();
       }
       if (opts?.visible === false) o.setVisible(false);
       if (opts?.active === false && o.body) o.body.enable = false;

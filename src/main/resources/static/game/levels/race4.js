@@ -21,9 +21,13 @@
 
     let mapData;
     try {
-      mapData =
-        (window.PTLevelShared?.fetchJsonWithFallback?.(assets.raceLevel4Json) ??
-          (await (await fetch(mapUrl, { credentials: "same-origin" })).json()));
+      if (window.PTLevelShared?.fetchJsonWithFallback) {
+        mapData = await window.PTLevelShared.fetchJsonWithFallback(assets.raceLevel4Json);
+      } else {
+        const r = await fetch(mapUrl, { credentials: "same-origin" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        mapData = await r.json();
+      }
     } catch (e) {
       alert(`Race level 4 map load failed: ${e?.message || String(e)}`);
       return;
@@ -290,6 +294,7 @@
         const layerName = (layer) => String(layer?.name || "").toLowerCase();
 
         const updoWalls = [];
+        const doupWalls = [];
 
         const renderTileLayer = (layer) => {
           if (!layer) return;
@@ -311,6 +316,7 @@
             const rturn = isTrue(p.rturn);
             const rrturn = isTrue(p.rrturn);
             const updo = isTrue(p.updo);
+            const doup = isTrue(p.doup);
 
             if (fake) {
               // 虚假墙：只显示，不生成碰撞
@@ -326,10 +332,16 @@
             }
 
             // Moving solid walls
-            if (solid && updo) {
+            if (solid && lname === "two" && updo) {
               const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
               this.oscL.add(o);
               updoWalls.push(o);
+              continue;
+            }
+            if (solid && lname === "two" && doup) {
+              const o = spawnBodyImage(cx, cy, tile, tileW, tileH, 22, true);
+              this.oscL.add(o);
+              doupWalls.push(o);
               continue;
             }
 
@@ -401,6 +413,18 @@
           this.tweens.add({
             targets: o,
             y: o.y - tileH * 3,
+            duration: 900,
+            ease: "Sine.easeInOut",
+            yoyo: true,
+            repeat: -1,
+            onUpdate: () => o.body?.updateFromGameObject?.(),
+          });
+        }
+        // doup: first move down 3 tiles, then up 3 tiles, periodic.
+        for (const o of doupWalls) {
+          this.tweens.add({
+            targets: o,
+            y: o.y + tileH * 3,
             duration: 900,
             ease: "Sine.easeInOut",
             yoyo: true,

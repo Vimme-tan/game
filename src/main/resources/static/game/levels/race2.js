@@ -15,12 +15,18 @@
       return;
     }
 
-    const mapUrl = new URL(assets.raceLevel2Json, window.location.href).toString();
+    const mapUrl =
+      window.PTLevelShared?.resolveGameUrl?.(assets.raceLevel2Json) ||
+      new URL(assets.raceLevel2Json, window.location.href).toString();
     let mapData;
     try {
-      const r = await fetch(mapUrl, { credentials: "same-origin" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      mapData = await r.json();
+      if (window.PTLevelShared?.fetchJsonWithFallback) {
+        mapData = await window.PTLevelShared.fetchJsonWithFallback(assets.raceLevel2Json);
+      } else {
+        const r = await fetch(mapUrl, { credentials: "same-origin" });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        mapData = await r.json();
+      }
     } catch (e) {
       alert(`Race level 2 map load failed: ${e?.message || String(e)}`);
       return;

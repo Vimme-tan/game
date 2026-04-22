@@ -132,11 +132,11 @@
 
     const EXTRA_MAP_IMAGES = ["earthWall.png", "earthWall2.png", "trap.png", "doorRedStroked.png", "doorStroked.png", "grey.png"];
     for (const f of EXTRA_MAP_IMAGES) {
-      const url = new URL(`../map/${f}`, mapBase).toString();
+      const url = new URL(`../../map/${f}`, mapBase).toString();
       if (!imageToKey.has(url)) imageToKey.set(url, `map_${f.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`);
     }
     const imgKeyByFile = (fileName) => {
-      const url = new URL(`../map/${fileName}`, mapBase).toString();
+      const url = new URL(`../../map/${fileName}`, mapBase).toString();
       return imageToKey.get(url) || null;
     };
 

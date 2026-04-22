@@ -111,11 +111,11 @@
     }
     const EXTRA_MAP_IMAGES = ["earthWall.png", "trap.png", "grey.png", "doorStroked.png"];
     for (const f of EXTRA_MAP_IMAGES) {
-      const url = new URL(`../map/${f}`, mapBase).toString();
+      const url = new URL(`../../map/${f}`, mapBase).toString();
       if (!imageToKey.has(url)) imageToKey.set(url, `map_${f.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`);
     }
     const imgKeyByFile = (fileName) => {
-      const url = new URL(`../map/${fileName}`, mapBase).toString();
+      const url = new URL(`../../map/${fileName}`, mapBase).toString();
       return imageToKey.get(url) || null;
     };
 
@@ -229,6 +229,12 @@
             }
 
             if (isSolid) {
+              const wallKey = key || imgKeyByFile("earthWall.png") || imgKeyByFile("grey.png") || null;
+              if (wallKey) {
+                const wall = this.add.image(cx, cy, wallKey);
+                wall.setDisplaySize(tileW, tileH);
+                wall.setDepth(12);
+              }
               const r = this.add.rectangle(cx, cy, tileW, tileH, 0x000000, 0);
               this.physics.add.existing(r, true);
               this.solidsOther.add(r);
