@@ -24,7 +24,7 @@
     return String(window.__PT_API_BASE__ || "").trim();
   };
   const API_BASE = getApiBase().replace(/\/+$/, "");
-  const ENABLE_API_MOCK = true;
+  const ENABLE_API_MOCK = false;
   const toApiUrl = (url) => {
     const u = String(url || "");
     if (!u) return u;
