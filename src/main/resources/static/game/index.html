@@ -161,6 +161,109 @@
             cursor:pointer;
         }
         .levelCell.locked { opacity: .4; filter: grayscale(1); cursor: not-allowed; }
+        #dualPickerBackdrop{
+            position: fixed;
+            inset: 0;
+            z-index: 70;
+            display:none;
+            align-items:center;
+            justify-content:center;
+            background: rgba(0,0,0,.6);
+            padding: 20px;
+        }
+        #dualPickerDialog{
+            width: min(860px, calc(100vw - 28px));
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(15,23,42,.95);
+            box-shadow: 0 20px 60px rgba(0,0,0,.55);
+            padding: 16px;
+        }
+        .dualPickerTitle{ margin: 0 0 6px; font-size: 22px; }
+        .dualPickerHint{ color: #cbd5e1; font-size: 13px; margin-bottom: 12px; }
+        .dualPickerPlayers{
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .dualPickerCard{
+            border: 1px solid var(--lineSoft);
+            border-radius: 12px;
+            background: rgba(0,0,0,.28);
+            padding: 12px;
+            text-align:center;
+        }
+        .dualPickerCardTitle{ font-weight: 800; margin-bottom: 8px; }
+        .dualPreview{
+            width: 120px;
+            height: 140px;
+            margin: 0 auto 10px;
+            border-radius: 12px;
+            border: 2px solid rgba(255,255,255,.25);
+            background: rgba(2,6,23,.8);
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            position: relative;
+            overflow: hidden;
+        }
+        .dualPreview img{
+            width: 72px;
+            height: auto;
+            image-rendering: pixelated;
+        }
+        .dualColorName{ font-size: 13px; color:#e5e7eb; min-height: 20px; }
+        .dualColorRow{
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            gap: 10px;
+            margin-top: 6px;
+        }
+        .dualArrowBtn{
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            border: 1px solid var(--lineSoft);
+            background: rgba(30,41,59,.82);
+            color:#fff;
+            font-size: 20px;
+            font-weight: 800;
+            cursor: pointer;
+            line-height: 1;
+        }
+        #dualModeRow{
+            display:flex;
+            align-items:center;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        #dualModeRow select{
+            min-width: 200px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid var(--lineSoft);
+            background: rgba(0,0,0,.35);
+            color: var(--fg);
+            padding: 0 8px;
+            font-size: 13px;
+        }
+        #dualAiArea{
+            border: 1px dashed rgba(255,255,255,.25);
+            border-radius: 10px;
+            padding: 10px;
+            font-size: 12px;
+            color:#cbd5e1;
+            margin-bottom: 12px;
+            display:none;
+        }
+        .dualPickerActions{
+            display:flex;
+            justify-content:flex-end;
+            gap: 10px;
+        }
         .settingsCard {
             border: 1px solid var(--line);
             border-radius: 14px;
@@ -433,6 +536,49 @@
 
     <div style="display:none;">
         <div id="meText"></div>
+    </div>
+</div>
+
+<div id="dualPickerBackdrop" role="dialog" aria-modal="true" aria-label="双人模式角色与人机选择">
+    <div id="dualPickerDialog">
+        <h3 class="dualPickerTitle" id="dualPickerTitle">双人设置</h3>
+        <div class="dualPickerHint">先确认人物颜色与玩家2类型，再进入关卡选择。</div>
+        <div class="dualPickerPlayers">
+            <div class="dualPickerCard">
+                <div class="dualPickerCardTitle">玩家1</div>
+                <div class="dualPreview" id="dualP1Preview">
+                    <img src="./assets/character/front.png" alt="玩家1人物预览"/>
+                </div>
+                <div id="dualP1ColorName" class="dualColorName">蓝色</div>
+                <div class="dualColorRow">
+                    <button id="btnP1ColorPrev" class="dualArrowBtn" type="button" aria-label="玩家1上一个颜色">&lt;</button>
+                    <button id="btnP1ColorNext" class="dualArrowBtn" type="button" aria-label="玩家1下一个颜色">&gt;</button>
+                </div>
+            </div>
+            <div class="dualPickerCard">
+                <div class="dualPickerCardTitle">玩家2</div>
+                <div class="dualPreview" id="dualP2Preview">
+                    <img src="./assets/character/front.png" alt="玩家2人物预览"/>
+                </div>
+                <div id="dualP2ColorName" class="dualColorName">红色</div>
+                <div class="dualColorRow">
+                    <button id="btnP2ColorPrev" class="dualArrowBtn" type="button" aria-label="玩家2上一个颜色">&lt;</button>
+                    <button id="btnP2ColorNext" class="dualArrowBtn" type="button" aria-label="玩家2下一个颜色">&gt;</button>
+                </div>
+            </div>
+        </div>
+        <div id="dualModeRow">
+            <label for="dualP2ModeSelect">玩家2类型</label>
+            <select id="dualP2ModeSelect">
+                <option value="human">真人</option>
+                <option value="ai">人机（AI）</option>
+            </select>
+        </div>
+        <div id="dualAiArea">AI 已连接：当前为基础自动驾驶逻辑（自动移动 + 遇阻尝试跳跃）。</div>
+        <div class="dualPickerActions">
+            <button id="btnDualPickerCancel" class="btn ghost" type="button">取消</button>
+            <button id="btnDualPickerConfirm" class="btn" type="button">确定并进入</button>
+        </div>
     </div>
 </div>
 

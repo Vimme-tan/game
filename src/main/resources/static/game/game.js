@@ -12,6 +12,26 @@
   } catch {}
 
   const $ = (id) => document.getElementById(id);
+  const getApiBase = () => {
+    try {
+      const qp = new URLSearchParams(window.location.search).get("apiBase");
+      if (qp && qp.trim()) return qp.trim();
+    } catch {}
+    try {
+      const ls = localStorage.getItem("pt_api_base");
+      if (ls && ls.trim()) return ls.trim();
+    } catch {}
+    return String(window.__PT_API_BASE__ || "").trim();
+  };
+  const API_BASE = getApiBase().replace(/\/+$/, "");
+  const ENABLE_API_MOCK = false;
+  const toApiUrl = (url) => {
+    const u = String(url || "");
+    if (!u) return u;
+    if (/^https?:\/\//i.test(u)) return u;
+    if (!u.startsWith("/")) return u;
+    return API_BASE ? `${API_BASE}${u}` : u;
+  };
   const ui = {
     landing: $("landing"),
     app: $("app"),
@@ -76,6 +96,20 @@
     btnBindP2Jump: $("btnBindP2Jump"),
     btnResetKeybinds: $("btnResetKeybinds"),
     controlModeSelect: $("controlModeSelect"),
+    dualPickerBackdrop: $("dualPickerBackdrop"),
+    dualPickerTitle: $("dualPickerTitle"),
+    dualP1Preview: $("dualP1Preview"),
+    dualP2Preview: $("dualP2Preview"),
+    dualP1ColorName: $("dualP1ColorName"),
+    dualP2ColorName: $("dualP2ColorName"),
+    btnP1ColorPrev: $("btnP1ColorPrev"),
+    btnP1ColorNext: $("btnP1ColorNext"),
+    btnP2ColorPrev: $("btnP2ColorPrev"),
+    btnP2ColorNext: $("btnP2ColorNext"),
+    dualP2ModeSelect: $("dualP2ModeSelect"),
+    dualAiArea: $("dualAiArea"),
+    btnDualPickerCancel: $("btnDualPickerCancel"),
+    btnDualPickerConfirm: $("btnDualPickerConfirm"),
   };
 
   const api = {
@@ -83,6 +117,7 @@
       // When hosting on GitHub/Gitee Pages there is usually no backend (/api/*),
       // so we provide minimal mock data to keep the front-end playable.
       const getMock = () => {
+        if (!ENABLE_API_MOCK) return undefined;
         const u = String(url || "").toLowerCase();
         if (u === "/api/auth/me") {
           return {
@@ -107,8 +142,8 @@
       };
 
       try {
-        const r = await fetch(url, {
-          credentials: "same-origin",
+        const r = await fetch(toApiUrl(url), {
+          credentials: "include",
           headers: { "Content-Type": "application/json", ...(options.headers || {}) },
           ...options,
         });
@@ -206,10 +241,30 @@
     keybinds: null,
     controlMode: "desktop",
     touch: { left: false, right: false, jumpPressed: false, jumpHeld: false },
+    dualPlayerConfig: null,
+    pendingDualMode: null,
+    aiControl: { running: false, raf: 0, jumpUntil: 0, pressed: {} },
   };
 
   const KEYBINDS_STORAGE_KEY = "pt_keybinds_v1";
   const CONTROL_MODE_STORAGE_KEY = "pt_control_mode_v1";
+  const DUAL_PLAYER_STORAGE_KEY = "pt_dual_player_config_v1";
+  const DUAL_PLAYER_COLORS = [
+    { value: "red", label: "红色", tint: 0xef4444 },
+    { value: "orange", label: "橙色", tint: 0xf59e0b },
+    { value: "yellow", label: "黄色", tint: 0xfacc15 },
+    { value: "green", label: "绿色", tint: 0x22c55e },
+    { value: "cyan", label: "青色", tint: 0x06b6d4 },
+    { value: "blue", label: "蓝色", tint: 0x3b82f6 },
+    { value: "purple", label: "紫色", tint: 0xa855f7 },
+    { value: "black", label: "黑色", tint: 0x000000 },
+    { value: "white", label: "白色", tint: 0xffffff },
+  ];
+  const DEFAULT_DUAL_PLAYER_CONFIG = {
+    p1Color: "blue",
+    p2Color: "red",
+    p2Mode: "human",
+  };
   const DEFAULT_KEYBINDS = {
     p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
     p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
@@ -275,6 +330,228 @@
 
   function syncControlModeUI() {
     if (ui.controlModeSelect) ui.controlModeSelect.value = state.controlMode === "mobile" ? "mobile" : "desktop";
+  }
+
+  function normalizeDualPlayerConfig(input) {
+    const colorSet = new Set(DUAL_PLAYER_COLORS.map((c) => c.value));
+    const pickColor = (v, fallback) => {
+      const s = String(v || "").toLowerCase();
+      return colorSet.has(s) ? s : fallback;
+    };
+    const p2Mode = String(input?.p2Mode || "").toLowerCase() === "ai" ? "ai" : "human";
+    return {
+      p1Color: pickColor(input?.p1Color, DEFAULT_DUAL_PLAYER_CONFIG.p1Color),
+      p2Color: pickColor(input?.p2Color, DEFAULT_DUAL_PLAYER_CONFIG.p2Color),
+      p2Mode,
+    };
+  }
+
+  function loadDualPlayerConfig() {
+    try {
+      const raw = localStorage.getItem(DUAL_PLAYER_STORAGE_KEY);
+      if (!raw) return normalizeDualPlayerConfig(DEFAULT_DUAL_PLAYER_CONFIG);
+      return normalizeDualPlayerConfig(JSON.parse(raw));
+    } catch {
+      return normalizeDualPlayerConfig(DEFAULT_DUAL_PLAYER_CONFIG);
+    }
+  }
+
+  function saveDualPlayerConfig(config) {
+    try {
+      localStorage.setItem(DUAL_PLAYER_STORAGE_KEY, JSON.stringify(normalizeDualPlayerConfig(config)));
+    } catch {}
+  }
+
+  function getDualPlayerTint(playerIndex) {
+    const cfg = state.dualPlayerConfig || normalizeDualPlayerConfig(DEFAULT_DUAL_PLAYER_CONFIG);
+    const key = Number(playerIndex) === 2 ? cfg.p2Color : cfg.p1Color;
+    const picked = DUAL_PLAYER_COLORS.find((c) => c.value === key);
+    return picked ? picked.tint : 0xffffff;
+  }
+
+  function applyDualPlayerAppearance() {
+    if (state.mode !== "coop" && state.mode !== "race") return false;
+    const scene = state.levelScene;
+    if (!scene?.p1 || !scene?.p2) return false;
+    const p1Tint = getDualPlayerTint(1);
+    const p2Tint = getDualPlayerTint(2);
+    if (typeof scene.p1.setTint === "function") scene.p1.setTint(p1Tint);
+    if (typeof scene.p2.setTint === "function") scene.p2.setTint(p2Tint);
+    return true;
+  }
+
+  function scheduleApplyDualPlayerAppearance(maxAttempts = 90) {
+    let tries = 0;
+    const tick = () => {
+      tries += 1;
+      if (applyDualPlayerAppearance()) return;
+      if (tries < maxAttempts) window.requestAnimationFrame(tick);
+    };
+    window.requestAnimationFrame(tick);
+  }
+
+  function tintToCss(tint, alpha = 1) {
+    const n = Number(tint) || 0;
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
+  }
+
+  function getDualColorIndex(value) {
+    const idx = DUAL_PLAYER_COLORS.findIndex((c) => c.value === value);
+    return idx >= 0 ? idx : 0;
+  }
+
+  function stepDualColor(which, delta) {
+    const key = which === 2 ? "p2Color" : "p1Color";
+    const currIdx = getDualColorIndex(state.dualPlayerConfig?.[key]);
+    const len = DUAL_PLAYER_COLORS.length;
+    const nextIdx = (currIdx + delta + len) % len;
+    state.dualPlayerConfig = normalizeDualPlayerConfig({
+      ...state.dualPlayerConfig,
+      [key]: DUAL_PLAYER_COLORS[nextIdx].value,
+    });
+    syncDualPlayerPickerUI();
+    saveDualPlayerConfig(state.dualPlayerConfig);
+    applyDualPlayerAppearance();
+  }
+
+  function updateDualPreview(previewEl, nameEl, colorValue) {
+    const item = DUAL_PLAYER_COLORS.find((c) => c.value === colorValue) || DUAL_PLAYER_COLORS[0];
+    if (nameEl) nameEl.textContent = item.label;
+    if (!previewEl) return;
+    const tintCss = tintToCss(item.tint, 0.26);
+    previewEl.style.background = `linear-gradient(${tintCss}, ${tintCss}), rgba(2,6,23,.85)`;
+    previewEl.style.borderColor = tintToCss(item.tint, 0.85);
+    previewEl.style.boxShadow = `0 0 16px ${tintToCss(item.tint, 0.35)}`;
+  }
+
+  function syncDualPlayerPickerUI() {
+    if (!state.dualPlayerConfig) state.dualPlayerConfig = loadDualPlayerConfig();
+    updateDualPreview(ui.dualP1Preview, ui.dualP1ColorName, state.dualPlayerConfig.p1Color);
+    updateDualPreview(ui.dualP2Preview, ui.dualP2ColorName, state.dualPlayerConfig.p2Color);
+    if (ui.dualP2ModeSelect) ui.dualP2ModeSelect.value = state.dualPlayerConfig.p2Mode;
+    if (ui.dualAiArea) ui.dualAiArea.style.display = state.dualPlayerConfig.p2Mode === "ai" ? "block" : "none";
+  }
+
+  function openDualPlayerPicker(mode) {
+    state.pendingDualMode = mode === "race" ? "race" : "coop";
+    if (ui.dualPickerTitle) {
+      ui.dualPickerTitle.textContent = state.pendingDualMode === "race" ? "双人竞速设置" : "双人闯关设置";
+    }
+    syncDualPlayerPickerUI();
+    if (ui.dualPickerBackdrop) ui.dualPickerBackdrop.style.display = "flex";
+  }
+
+  function closeDualPlayerPicker() {
+    state.pendingDualMode = null;
+    if (ui.dualPickerBackdrop) ui.dualPickerBackdrop.style.display = "none";
+  }
+
+  function confirmDualPlayerPicker() {
+    const mode = state.pendingDualMode;
+    if (!mode) return;
+    saveDualPlayerConfig(state.dualPlayerConfig);
+    closeDualPlayerPicker();
+    state.mode = mode;
+    ui.levelsTitle.textContent = mode === "race" ? "双人竞速" : "双人闯关";
+    renderLevelsForMode();
+    showPanel("levels");
+  }
+
+  function keyCodeToKeyValue(code) {
+    if (code === "ArrowLeft") return "ArrowLeft";
+    if (code === "ArrowRight") return "ArrowRight";
+    if (code === "ArrowUp") return "ArrowUp";
+    if (code === "ArrowDown") return "ArrowDown";
+    if (code === "Space") return " ";
+    if (typeof code === "string" && code.startsWith("Key") && code.length === 4) return code.slice(3).toLowerCase();
+    if (typeof code === "string" && code.startsWith("Digit") && code.length === 6) return code.slice(5);
+    return "";
+  }
+
+  function dispatchVirtualKey(code, isDown) {
+    if (!code || typeof KeyboardEvent === "undefined") return;
+    const evtType = isDown ? "keydown" : "keyup";
+    const key = keyCodeToKeyValue(code);
+    const ev = new KeyboardEvent(evtType, {
+      bubbles: true,
+      cancelable: true,
+      code,
+      key,
+      composed: true,
+    });
+    document.dispatchEvent(ev);
+  }
+
+  function setAiKeyState(code, isDown) {
+    if (!code) return;
+    const pressed = state.aiControl.pressed;
+    if (pressed[code] === !!isDown) return;
+    pressed[code] = !!isDown;
+    dispatchVirtualKey(code, !!isDown);
+  }
+
+  function clearAiKeyStates() {
+    const pressed = state.aiControl.pressed || {};
+    for (const code of Object.keys(pressed)) {
+      if (pressed[code]) dispatchVirtualKey(code, false);
+      pressed[code] = false;
+    }
+    state.aiControl.jumpUntil = 0;
+  }
+
+  function stopDualAiController() {
+    state.aiControl.running = false;
+    if (state.aiControl.raf) {
+      cancelAnimationFrame(state.aiControl.raf);
+      state.aiControl.raf = 0;
+    }
+    clearAiKeyStates();
+  }
+
+  function startDualAiController() {
+    stopDualAiController();
+    state.aiControl.running = true;
+    const tick = () => {
+      if (!state.aiControl.running) return;
+      const cfg = state.dualPlayerConfig || loadDualPlayerConfig();
+      const p2Cfg = (state.keybinds || loadKeybinds()).p2;
+      const scene = state.levelScene;
+      const active = !!state.phaser && !state.levelPaused && (state.mode === "race" || state.mode === "coop") && cfg.p2Mode === "ai";
+      if (!active || !scene?.p2?.body || !p2Cfg) {
+        clearAiKeyStates();
+        state.aiControl.raf = requestAnimationFrame(tick);
+        return;
+      }
+
+      const p2 = scene.p2;
+      const body = p2.body;
+      const now = performance.now ? performance.now() : Date.now();
+      const worldW = Number(scene.worldW || scene.physics?.world?.bounds?.width || 0);
+      const targetX =
+        state.mode === "race"
+          ? (worldW > 0 ? worldW - 36 : p2.x + 220)
+          : scene.p1?.body
+            ? scene.p1.x + 32
+            : p2.x;
+      const dx = targetX - p2.x;
+      const goRight = dx > 16;
+      const goLeft = dx < -16;
+      const onGround = !!(body.blocked?.down || body.touching?.down);
+      const blockedMove = (goRight && body.blocked?.right) || (goLeft && body.blocked?.left);
+      const needJumpHeight = state.mode === "coop" && !!scene.p1?.body && scene.p1.y + 24 < p2.y && Math.abs(scene.p1.x - p2.x) < 140;
+      if (onGround && (blockedMove || needJumpHeight)) state.aiControl.jumpUntil = Math.max(state.aiControl.jumpUntil, now + 110);
+      const wantJump = now < state.aiControl.jumpUntil;
+
+      setAiKeyState(p2Cfg.left, goLeft);
+      setAiKeyState(p2Cfg.right, goRight);
+      setAiKeyState(p2Cfg.jump, wantJump);
+
+      state.aiControl.raf = requestAnimationFrame(tick);
+    };
+    state.aiControl.raf = requestAnimationFrame(tick);
   }
 
   function resetTouchState() {
@@ -392,6 +669,7 @@
       ui.levelsTitle.style.display = "";
       destroyPhaser();
     }
+    if (which !== "menu") closeDualPlayerPicker();
     debugLog("run_ui_layout", "H5_panel_visibility", "game.js:showPanel", "panel_switched", {
       panel: which,
       mode: state.mode,
@@ -410,6 +688,12 @@
     const showMobile = Boolean(isPlaying) && state.controlMode === "mobile";
     if (ui.mobileControls) ui.mobileControls.classList.toggle("active", showMobile);
     if (!showMobile) resetTouchState();
+    if (isPlaying && (state.mode === "coop" || state.mode === "race")) {
+      scheduleApplyDualPlayerAppearance();
+    }
+    const useAi = isPlaying && (state.mode === "coop" || state.mode === "race") && state.dualPlayerConfig?.p2Mode === "ai";
+    if (useAi) startDualAiController();
+    else stopDualAiController();
   }
 
   window.__PT_getGameViewport = function __PT_getGameViewport() {
@@ -433,6 +717,14 @@
   window.__PT_getKeybinds = function __PT_getKeybinds() {
     if (!state.keybinds) state.keybinds = loadKeybinds();
     return state.keybinds;
+  };
+  window.__PT_getDualPlayerConfig = function __PT_getDualPlayerConfig() {
+    if (!state.dualPlayerConfig) state.dualPlayerConfig = loadDualPlayerConfig();
+    return { ...state.dualPlayerConfig };
+  };
+  window.__PT_getDualPlayerTint = function __PT_getDualPlayerTint(playerIndex) {
+    if (!state.dualPlayerConfig) state.dualPlayerConfig = loadDualPlayerConfig();
+    return getDualPlayerTint(playerIndex);
   };
 
   async function refreshMe() {
@@ -472,6 +764,7 @@
   }
 
   function destroyPhaser() {
+    stopDualAiController();
     if (state.phaser) {
       state.phaser.destroy(true);
       state.phaser = null;
@@ -2542,17 +2835,11 @@
     });
     ui.navCoop.addEventListener("click", () => {
       playClickSfx();
-      state.mode = "coop";
-      ui.levelsTitle.textContent = "双人闯关";
-      renderLevelsForMode();
-      showPanel("levels");
+      openDualPlayerPicker("coop");
     });
     ui.navRace.addEventListener("click", () => {
       playClickSfx();
-      state.mode = "race";
-      ui.levelsTitle.textContent = "双人竞速";
-      renderLevelsForMode();
-      showPanel("levels");
+      openDualPlayerPicker("race");
     });
     ui.navSettings.addEventListener("click", () => {
       playClickSfx();
@@ -2598,8 +2885,10 @@
     applyVolumeToMedia();
     state.keybinds = loadKeybinds();
     state.controlMode = loadControlMode();
+    state.dualPlayerConfig = loadDualPlayerConfig();
     syncKeybindsUI();
     syncControlModeUI();
+    syncDualPlayerPickerUI();
     renderLevelsForMode();
   }
 
@@ -2650,6 +2939,29 @@
       saveControlMode(state.controlMode);
       setLevelPlayLayout(!!state.phaser);
     });
+    if (ui.btnP1ColorPrev) ui.btnP1ColorPrev.addEventListener("click", () => stepDualColor(1, -1));
+    if (ui.btnP1ColorNext) ui.btnP1ColorNext.addEventListener("click", () => stepDualColor(1, 1));
+    if (ui.btnP2ColorPrev) ui.btnP2ColorPrev.addEventListener("click", () => stepDualColor(2, -1));
+    if (ui.btnP2ColorNext) ui.btnP2ColorNext.addEventListener("click", () => stepDualColor(2, 1));
+    if (ui.dualP2ModeSelect) ui.dualP2ModeSelect.addEventListener("change", () => {
+      state.dualPlayerConfig = normalizeDualPlayerConfig({
+        ...state.dualPlayerConfig,
+        p2Mode: ui.dualP2ModeSelect.value,
+      });
+      saveDualPlayerConfig(state.dualPlayerConfig);
+      syncDualPlayerPickerUI();
+      if (state.phaser) setLevelPlayLayout(true);
+    });
+    if (ui.btnDualPickerCancel) ui.btnDualPickerCancel.addEventListener("click", () => closeDualPlayerPicker());
+    if (ui.btnDualPickerConfirm) ui.btnDualPickerConfirm.addEventListener("click", () => {
+      playClickSfx();
+      confirmDualPlayerPicker();
+    });
+    if (ui.dualPickerBackdrop) {
+      ui.dualPickerBackdrop.addEventListener("click", (e) => {
+        if (e.target === ui.dualPickerBackdrop) closeDualPlayerPicker();
+      });
+    }
 
     // If already logged in, go straight to app.
     try {
