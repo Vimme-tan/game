@@ -170,7 +170,9 @@
         o.body.setAllowGravity(false);
         o.setImmovable?.(true);
         o.body.setImmovable?.(true);
-        o.body.moves = opts?.moves === true;
+        // Coop move-like blocks should stay frozen by default (same as single/race),
+        // and only move when explicit tween/trigger updates their transform.
+        o.body.moves = false;
         o.body.setVelocity(0, 0);
         o.body.updateFromGameObject?.();
       }

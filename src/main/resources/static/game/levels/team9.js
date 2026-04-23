@@ -149,6 +149,7 @@
           if (!o?.body) return;
           if (o.setAllowGravity) o.setAllowGravity(false);
           o.body.allowGravity = false;
+          o.body.moves = false;
           if (immovable) {
             if (o.setImmovable) o.setImmovable(true);
             o.body.immovable = true;

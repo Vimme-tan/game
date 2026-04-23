@@ -840,3 +840,4 @@
 {"data":{"src":"./assets/audio/sfx/btn_click.wav"},"hypothesisId":"H3_audio_ready","location":"game.js:initMedia","sessionId":"377d1b","runId":"run_ui_layout","message":"click_ready","timestamp":1776940374535}
 {"data":{"panel":"menu","mode":"single"},"hypothesisId":"H5_panel_visibility","location":"game.js:showPanel","sessionId":"377d1b","runId":"run_ui_layout","message":"panel_switched","timestamp":1776940376875}
 {"data":{"src":"./assets/audio/sfx/btn_click.wav"},"hypothesisId":"H3_audio_ready","location":"game.js:initMedia","sessionId":"377d1b","runId":"run_ui_layout","message":"click_ready","timestamp":1776940376877}
+{"data":{"contextId":"Practical_training"},"hypothesisId":"H3_context_closed","location":"StartupLifecycleLogger:onClosed","sessionId":"377d1b","runId":"run_startup","message":"context_closed_event","timestamp":1776940404426}
