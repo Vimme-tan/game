@@ -1,5 +1,6 @@
 // Single-player Level 3 (basic stable logic for map display)
-// Exposes: window.SinglePlayerLevels.startLevel3(ctx, levelId)
+// Exposes:
+// window.SinglePlayerLevels.startLevel3(ctx, levelId)
 (function () {
   window.SinglePlayerLevels = window.SinglePlayerLevels || {};
 
@@ -37,8 +38,9 @@
     const resolveTilesetImageUrl = (imageSource, baseUrl) =>
       window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
 
-    // TSX 加载/解析统一走共享模块（减少重复）
-    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    // TSX 加载/解析统一走共享模块（减少重复
+    const fetchTsxText = (tsxSource, baseUrl) =>
+ window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
     const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
     const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
@@ -120,22 +122,21 @@
       }
     }
 
-    // 人物参数统一走共享模块（方便全关统一调整）
-    const tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 220, maxVy: 900, dragX: 900 };
+    // 人物参数统一走共享模块（方便全关统一调整
+    const tuning =
+ window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 220, maxVy: 900, dragX: 900 };
     const scene = {
       preload: function () {
         this._loadErrors = [];
         this.load.on("loaderror", (file) => {
           this._loadErrors.push(file?.url || file?.src || file?.key || "unknown");
         });
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.lastRespawnAt = -1e9;
         this.deathInvulnMs = 700;
@@ -145,8 +146,9 @@
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.physics.world.gravity.y = tuning.gravityY;
         this.cameras.main.setBounds(0, 0, worldW, worldH);
-        // 单人关卡背景统一：世界内灰底，世界外保持主页面背景
+        // 单人关卡背景统一：世界内灰底，世界外保持主页面背
         window.PTLevelShared?.applyWorldGreyBackdrop?.(this, worldW, worldH);
+
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
@@ -179,10 +181,8 @@
         }
 
         this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
-        this.player.setDisplaySize(tileW * 1.2, tileH * 1.8);
+        window.PTLevelShared?.applyPlayerSizing?.(this.player, tileW, tileH);
         this.player.body.setCollideWorldBounds(true);
-        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
-        this.player.body.setOffset(0, 0);
         this.player.body.setDragX(tuning.dragX);
         this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
         this.physics.add.collider(this.player, this.solids);
@@ -193,7 +193,8 @@
           this.physics.add.existing(s, true);
           this.deathSensors.add(s);
         }
-        // 单人模式：死亡 = 重开本关（事件全部重置）
+        // 单人模式：死= 重开本关（事件全部重置）
+
         this.physics.add.overlap(this.player, this.deathSensors, () => {
           if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
           this.lastRespawnAt = this.time.now;
@@ -233,6 +234,7 @@
           this.player.y < -tileH ||
           this.player.y > worldH + tileH
         ) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.player.body.setVelocity(0, 0);
           this.player.setPosition(this.bornX, this.bornY);
           this.lastRespawnAt = this.time.now;
@@ -247,9 +249,9 @@
         else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
 
-        if (left) this.player.setTexture("char_left");
-        else if (right) this.player.setTexture("char_right");
-        else this.player.setTexture("char_front");
+        if (left) window.PTLevelShared?.setCharacterPose?.(this.player, "left", this.time?.now);
+        else if (right) window.PTLevelShared?.setCharacterPose?.(this.player, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.player, "front", this.time?.now);
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {

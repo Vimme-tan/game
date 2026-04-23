@@ -1,5 +1,6 @@
 // Double-player Race Level 3 (JSON)
-// Exposes: window.DoublePlayerLevels.startRaceLevel3(ctx, levelId)
+// Exposes:
+// window.DoublePlayerLevels.startRaceLevel3(ctx, levelId)
 (function () {
   window.DoublePlayerLevels = window.DoublePlayerLevels || {};
 
@@ -120,14 +121,12 @@
         this.load.on("loaderror", (file) => {
           console.warn("race3 loaderror:", file?.key, file?.src);
         });
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
 
         this._tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
         this.physics.world.setBounds(0, 0, worldW, worldH);
@@ -216,6 +215,7 @@
         };
 
         // groups
+
         this.solids = this.physics.add.staticGroup();
         this.deathSensors = this.physics.add.staticGroup();
         this.winSensors = this.physics.add.staticGroup();
@@ -234,6 +234,7 @@
         this.winDoorsFive = this.physics.add.group(); // five: win, touch8 (move left 3)
 
         // render one layer (pure background / base)
+
         if (layerOne) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(layerOne.data[idx] || 0);
@@ -245,6 +246,7 @@
         }
 
         // two layer: walls + fake door (death2)
+
         if (layerTwo) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(layerTwo.data[idx] || 0);
@@ -262,6 +264,7 @@
             }
 
             // fake door: death2 kills（图像隐藏，只保留判定）
+
             if (isTrue(p.death2)) {
               addStaticRect(this.deathSensors, cx, cy, tileW * 2, tileH * 2);
               continue;
@@ -295,6 +298,7 @@
         }
 
         // three layer: fake walls (non-solid) + rrmove/rmove2 solid blocks
+
         if (layerThree) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(layerThree.data[idx] || 0);
@@ -326,6 +330,7 @@
         }
 
         // spikes + win doors in four/five
+
         const spikeW = tileW * 2;
         const spikeH = tileH / 2;
         const attachSensorToObj = (o, w, h) => {
@@ -364,10 +369,10 @@
               continue;
             }
             if (isTrue(p.death) && isTrue(p.rturn)) {
-              // 竞速：刺集体向右移动 1 格
-              const o = spawnBodyImage(cx + tileW * 1, cy, tile, spikeW, spikeH, 28, false);
+              // 竞速：刺集体向右移1
+               const o = spawnBodyImage(cx + tileW * 1, cy, tile, spikeW, spikeH, 28, false);
               o.setAngle(90);
-              o.body.enable = false; // death 判定走 sensor
+              o.body.enable = false; // death 判定sensor
               spikeGroup.add(o);
               const s = attachSensorToObj(o);
               this.deathSensors.add(s);
@@ -398,6 +403,7 @@
         }
 
         // players
+
         const toSpawn = (o, fallback) => {
           if (!o) return fallback;
           return {
@@ -413,9 +419,8 @@
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setDepth(1000); // 永远显示在最上层（避免被地图 tile 覆盖导致“看不到人物”）
           p.setTint(tint);
-          p.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setDragX(tuning.dragX);
           p.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
           this.physics.add.collider(p, this.solids);
@@ -439,6 +444,7 @@
         this.p2 = mkPlayer(this.spawn2.x, this.spawn2.y, 0xfca5a5);
 
         // win
+
         const winNow = () => {
           if (this.finished) return;
           this.finished = true;
@@ -448,6 +454,7 @@
         this.physics.add.overlap(this.p2, this.winSensors, winNow);
 
         // touches
+
         const s1 = makeSensor(t1);
         const s2 = makeSensor(t2);
         const s3 = makeSensor(t3);
@@ -550,16 +557,20 @@
         }
 
         // controls
+        // Race: left player uses WASD, right player uses arrow keys.
+
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
         };
-        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
-        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
-        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
-        const p2Left = codeToPhaserKeyCode(kb.p2.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
-        const p2Right = codeToPhaserKeyCode(kb.p2.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
-        const p2Jump = codeToPhaserKeyCode(kb.p2.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const leftKb = kb.p2 || kb.p1;
+        const rightKb = kb.p1 || kb.p2;
+        const p1Left = codeToPhaserKeyCode(leftKb.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
+        const p1Right = codeToPhaserKeyCode(leftKb.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
+        const p1Jump = codeToPhaserKeyCode(leftKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const p2Left = codeToPhaserKeyCode(rightKb.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p2Right = codeToPhaserKeyCode(rightKb.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p2Jump = codeToPhaserKeyCode(rightKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
         this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
         this.p2Keys = this.input.keyboard.addKeys({ left: p2Left, right: p2Right, jump: p2Jump });
       },
@@ -568,6 +579,7 @@
         if (this.finished) return;
 
         // 可移动平台“载人”：人物站在平台上时，平台移动多少，人物就跟随多少（避免掉下去）
+
         const carryIfOn = (p, plat, dx, dy) => {
           if (!dx && !dy) return;
           if (!p?.body || !plat) return;
@@ -612,9 +624,9 @@
           if (left) p.setVelocityX(-tuning.speed);
           else if (right) p.setVelocityX(tuning.speed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(tuning.jumpV);
         };
@@ -622,9 +634,16 @@
         step(this.p2, this.p2Keys, false);
 
         // fall out -> respawn
+
         const outOfMap = (p) => p.x < -tileW || p.x > worldW + tileW || p.y < -tileH || p.y > worldH + tileH;
-        if (outOfMap(this.p1)) this.respawnPlayer(this.p1);
-        if (outOfMap(this.p2)) this.respawnPlayer(this.p2);
+        if (outOfMap(this.p1)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p1);
+        }
+        if (outOfMap(this.p2)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p2);
+        }
       },
     };
 

@@ -95,10 +95,8 @@
     const t2 = touchObj(2);
     const t3 = touchObj(3);
     const t4 = touchObj(4);
-    const t5 = touchObj(5);
     const t6 = touchObj(6);
     const t7 = touchObj(7);
-    const t8 = touchObj(8);
 
     function toSpawn(o, fallback) {
       if (!o) return fallback;
@@ -196,14 +194,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.dead1 = false;
         this.dead2 = false;
@@ -268,6 +264,8 @@
         const sword2Objs = [];
         const bluewinRects = [];
         const redwinRects = [];
+        const blueDoorKey = findFirstTileKeyByProp("bluewin") || imgKeyByFile("doorStroked.png");
+        const redDoorKey = findFirstTileKeyByProp("redwin") || imgKeyByFile("doorRedStroked.png");
 
         const addStaticRect = (group, x, y, w = tileW, h = tileH) => {
           const r = this.add.rectangle(x, y, w, h, 0x000000, 0);
@@ -339,8 +337,22 @@
               o._spawn = { cx, cy };
               this.move1Group.add(o);
             }
-            if (p.bluewin === true) bluewinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
-            if (p.redwin === true) redwinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+            if (p.bluewin === true) {
+              bluewinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+              const door = blueDoorKey
+                ? this.add.image(cx - tileW, cy + tileH, blueDoorKey).setOrigin(0, 1)
+                : this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0x3b82f6, 0.65);
+              door.setDepth?.(34);
+              if (door.setDisplaySize) door.setDisplaySize(tileW * 2, tileH * 2);
+            }
+            if (p.redwin === true) {
+              redwinRects.push({ cx, cy, w: tileW * 2, h: tileH * 2 });
+              const door = redDoorKey
+                ? this.add.image(cx - tileW, cy + tileH, redDoorKey).setOrigin(0, 1)
+                : this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0xef4444, 0.65);
+              door.setDepth?.(34);
+              if (door.setDisplaySize) door.setDisplaySize(tileW * 2, tileH * 2);
+            }
           }
         }
 
@@ -352,9 +364,8 @@
 
         const mkPlayer = (x, y) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
-          p.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setDragX(900);
           p.body.setMaxVelocity(260, 900);
           return p;
@@ -374,6 +385,7 @@
         const kill1 = () => {
           if (this.dead1 || this.finished) return;
           this.dead1 = true;
+          window.PTLevelShared?.playDieSfx?.();
           this.p1.body.setVelocity(0, 0);
           this.time.delayedCall(520, () => {
             this.dead1 = false;
@@ -385,6 +397,7 @@
         const kill2 = () => {
           if (this.dead2 || this.finished) return;
           this.dead2 = true;
+          window.PTLevelShared?.playDieSfx?.();
           this.p2.body.setVelocity(0, 0);
           this.time.delayedCall(520, () => {
             this.dead2 = false;
@@ -400,6 +413,22 @@
         });
         this.physics.add.overlap(this.p2, this.deadly, () => {
           if (this.time.now - this.lastRespawnAt2 < this.deathInvulnMs) return;
+          kill2();
+        });
+
+        // bombs become deadly after touch2/touch3 activation
+        const bombGroup = this.physics.add.group();
+        for (const b of bomb1Objs.concat(bomb2Objs)) bombGroup.add(b);
+        this.physics.add.overlap(this.p1, bombGroup, (_p, bomb) => {
+          if (this.time.now - this.lastRespawnAt1 < this.deathInvulnMs) return;
+          if (bomb?.visible !== true) return;
+          if (bomb?.body && bomb.body.enable !== true) return;
+          kill1();
+        });
+        this.physics.add.overlap(this.p2, bombGroup, (_p, bomb) => {
+          if (this.time.now - this.lastRespawnAt2 < this.deathInvulnMs) return;
+          if (bomb?.visible !== true) return;
+          if (bomb?.body && bomb.body.enable !== true) return;
           kill2();
         });
 
@@ -435,7 +464,7 @@
           fn();
         };
 
-        const moveLeft = (targets, tiles = 6, ms = 800) => {
+        const moveLeft = (targets, tiles = 31, ms = 6000) => {
           const dx = tileW * tiles;
           for (const o of targets) {
             if (!o) continue;
@@ -450,65 +479,73 @@
             });
           }
         };
+        const launchSword = (targets, dir) => {
+          const speed = 230; // px/s, keep slow and readable
+          for (const o of targets) {
+            if (!o) continue;
+            activateObj(o);
+            const targetX = dir < 0 ? -Math.max(tileW, o.displayWidth || tileW) : worldW + Math.max(tileW, o.displayWidth || tileW);
+            const dist = Math.abs(targetX - o.x);
+            const duration = Math.max(1200, Math.round((dist / speed) * 1000));
+            this.tweens.add({
+              targets: o,
+              x: targetX,
+              duration,
+              ease: "Linear",
+              onUpdate: () => {
+                if (o?.body?.updateFromGameObject) o.body.updateFromGameObject();
+              },
+              onComplete: () => {
+                if (!o) return;
+                if (o.body) o.body.enable = false;
+                o.setVisible(false);
+                o.destroy();
+              },
+            });
+          }
+        };
 
         // Sensors
         const s1 = makeSensor(this, t1);
         const s2 = makeSensor(this, t2);
         const s3 = makeSensor(this, t3);
         const s4 = makeSensor(this, t4);
-        const s5 = makeSensor(this, t5);
         const s6 = makeSensor(this, t6);
         const s7 = makeSensor(this, t7);
-        const s8 = makeSensor(this, t8);
 
         if (s2) {
           this.physics.add.overlap(this.p1, s2, () => oneShot("touch2_p1", () => {
             bomb1Objs.forEach(activateObj);
-            kill1();
           }));
           this.physics.add.overlap(this.p2, s2, () => oneShot("touch2_p2", () => {
             bomb1Objs.forEach(activateObj);
-            kill2();
           }));
         }
         if (s3) {
           this.physics.add.overlap(this.p1, s3, () => oneShot("touch3_p1", () => {
             bomb2Objs.forEach(activateObj);
-            kill1();
           }));
           this.physics.add.overlap(this.p2, s3, () => oneShot("touch3_p2", () => {
             bomb2Objs.forEach(activateObj);
-            kill2();
           }));
         }
         if (s6) {
           this.physics.add.overlap(this.p1, s6, () => oneShot("touch6", () => {
-            sword2Objs.forEach(activateObj);
-            moveLeft(sword2Objs, 6, 850);
+            launchSword(sword2Objs, -1);
           }));
           this.physics.add.overlap(this.p2, s6, () => oneShot("touch6", () => {
-            sword2Objs.forEach(activateObj);
-            moveLeft(sword2Objs, 6, 850);
+            launchSword(sword2Objs, -1);
           }));
         }
-        const touchMove = () => oneShot("touch4or8", () => moveLeft(this.moveGroup.getChildren(), 6, 900));
+        const touchMove = () => oneShot("touch4", () => moveLeft(this.moveGroup.getChildren(), 31, 6000));
         if (s4) {
           this.physics.add.overlap(this.p1, s4, touchMove);
           this.physics.add.overlap(this.p2, s4, touchMove);
         }
-        if (s8) {
-          this.physics.add.overlap(this.p1, s8, touchMove);
-          this.physics.add.overlap(this.p2, s8, touchMove);
-        }
-        const touchMove1 = () => oneShot("touch5or7", () => {
-          moveLeft(this.move1Group.getChildren(), 6, 900);
-          sword1Objs.forEach(activateObj);
-          moveLeft(sword1Objs, 6, 900);
+        const touchMove1 = () => oneShot("touch7", () => {
+          moveLeft(this.move1Group.getChildren(), 31, 6000);
+          launchSword(sword1Objs, 1);
         });
-        if (s5) {
-          this.physics.add.overlap(this.p1, s5, touchMove1);
-          this.physics.add.overlap(this.p2, s5, touchMove1);
-        }
         if (s7) {
           this.physics.add.overlap(this.p1, s7, touchMove1);
           this.physics.add.overlap(this.p2, s7, touchMove1);
@@ -578,9 +615,9 @@
           if (left) p.setVelocityX(-pSpeed);
           else if (right) p.setVelocityX(pSpeed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(jumpV);
         };
@@ -605,6 +642,7 @@
         const b2 = this.p2.getBounds();
         const hitVb = (b) => b.bottom >= vb.bottom - 2 || b.top <= vb.top + 2 || b.left <= vb.left + 2 || b.right >= vb.right - 2;
         if (!this.dead1 && hitVb(b1)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.dead1 = true;
           this.p1.body.setVelocity(0, 0);
           this.time.delayedCall(520, () => {
@@ -615,6 +653,7 @@
           });
         }
         if (!this.dead2 && hitVb(b2)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.dead2 = true;
           this.p2.body.setVelocity(0, 0);
           this.time.delayedCall(520, () => {

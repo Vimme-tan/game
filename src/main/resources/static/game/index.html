@@ -102,8 +102,9 @@
             min-height: 100vh;
             display:flex;
             align-items:center;
-            justify-content:flex-start;
-            padding: 24px 24px 24px 56px;
+            justify-content:space-between;
+            gap: clamp(24px, 5vw, 90px);
+            padding: 24px 56px 24px 56px;
         }
         .menuStack {
             width: min(420px, 90vw);
@@ -122,6 +123,28 @@
             cursor: pointer;
         }
         .menuBtn.exit { border-color: rgba(239,68,68,.9); background: rgba(127,29,29,.55); }
+        .rulesCard{
+            width: min(520px, 44vw);
+            border: 2px solid rgba(147,197,253,.9);
+            border-radius: 16px;
+            background: rgba(2,6,23,.65);
+            box-shadow: 0 12px 32px rgba(15,23,42,.42);
+            padding: 18px 22px;
+            line-height: 1.8;
+            font-size: 20px;
+            color: #f3f4f6;
+        }
+        .rulesTitle{
+            font-size: 28px;
+            font-weight: 900;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+        .rulesHint{
+            font-size: 16px;
+            color: #cbd5e1;
+            margin-top: 10px;
+        }
 
         .panelShell {
             display:none;
@@ -343,11 +366,11 @@
         #panelLevels.isPlaying #levelToolbar{ display:flex; }
         canvas { display:block; margin: 0 auto; border-radius: 10px; }
         #mobileControls{
-            position:absolute;
+            position: fixed;
             inset: 0;
             pointer-events:none;
             display:none;
-            z-index: 30;
+            z-index: 9999;
         }
         #mobileControls.active{ display:block; }
         .mobilePad{
@@ -356,25 +379,36 @@
             user-select:none;
             -webkit-user-select:none;
             touch-action: none;
-            width: 64px;
-            height: 64px;
-            border-radius: 999px;
-            border: 2px solid rgba(255,255,255,.9);
-            background: rgba(15,23,42,.82);
+            width: 72px;
+            height: 72px;
+            border-radius: 14px;
+            border: 2px solid #ffffff;
+            background: #111827;
+            box-shadow: 0 8px 20px rgba(0,0,0,.45);
             color:#fff;
-            font-size: 30px;
+            font-size: 24px;
             font-weight: 900;
             display:flex;
             align-items:center;
             justify-content:center;
+            overflow: hidden;
+        }
+        .mobilePad img{
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            pointer-events:none;
+            user-select:none;
+            -webkit-user-select:none;
         }
         .mobilePad:active{
-            background: rgba(59,130,246,.88);
-            border-color: rgba(255,255,255,1);
+            background: #2563eb;
+            border-color: #ffffff;
         }
-        #mcLeft{ left: 18px; bottom: 18px; }
-        #mcRight{ left: 92px; bottom: 18px; }
-        #mcJump{ right: 20px; bottom: 18px; width: 78px; height: 78px; font-size: 24px; }
+        #mcLeft{ left: max(14px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom)); }
+        #mcRight{ left: calc(max(14px, env(safe-area-inset-left)) + 82px); bottom: max(14px, env(safe-area-inset-bottom)); }
+        #mcJump{ right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); width: 86px; height: 86px; font-size: 22px; }
         /* Win dialog */
         #winDialogBackdrop{
             position: fixed;
@@ -469,6 +503,12 @@
             <button id="navSettings" class="menuBtn" type="button">设置</button>
             <button id="navLogout" class="menuBtn exit" type="button">退出</button>
         </div>
+        <div class="rulesCard" aria-label="游戏规则说明">
+            <div class="rulesTitle">游戏规则</div>
+            <div>单人闯关：↑ 跳跃，→ 前进，← 后退。</div>
+            <div>双人操作：W 跳跃，D 前进，A 后退。</div>
+            <div class="rulesHint">操作按键可在“设置”中更改。</div>
+        </div>
     </section>
 
     <section id="panelLevels" class="panelShell">
@@ -482,9 +522,15 @@
         <div id="gameHost">
             <div id="phaserMount"></div>
             <div id="mobileControls" aria-label="手机端按键">
-                <button id="mcLeft" class="mobilePad" type="button" aria-label="向左">←</button>
-                <button id="mcRight" class="mobilePad" type="button" aria-label="向右">→</button>
-                <button id="mcJump" class="mobilePad" type="button" aria-label="跳跃">跳</button>
+                <button id="mcLeft" class="mobilePad" type="button" aria-label="向左">
+                    <img src="./assets/audio/key/left.png" alt="Left"/>
+                </button>
+                <button id="mcRight" class="mobilePad" type="button" aria-label="向右">
+                    <img src="./assets/audio/key/right.png" alt="Right"/>
+                </button>
+                <button id="mcJump" class="mobilePad" type="button" aria-label="跳跃">
+                    <img src="./assets/audio/key/up.png" alt="Up"/>
+                </button>
             </div>
         </div>
     </section>
@@ -605,30 +651,30 @@
 
 <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
-<script src="./levels/shared.js?v=20260416c"></script>
-<script src="./levels/level1.js?v=20260413a"></script>
-<script src="./levels/level2.js?v=20260413a"></script>
-<script src="./levels/level3.js?v=20260413a"></script>
-<script src="./levels/level4.js?v=20260413a"></script>
-<script src="./levels/level5.js?v=20260416b"></script>
-<script src="./levels/level6.js?v=20260416b"></script>
-<script src="./levels/level7.js?v=20260413a"></script>
-<script src="./levels/level8.js?v=20260413a"></script>
-<script src="./levels/race1.js?v=20260416d"></script>
-<script src="./levels/race2.js?v=20260416d"></script>
-<script src="./levels/race3.js?v=20260416d"></script>
-<script src="./levels/race4.js?v=20260416d"></script>
-<script src="./levels/race5.js?v=20260416b"></script>
-<script src="./levels/team1.js?v=20260413a"></script>
-<script src="./levels/team2.js?v=20260416d"></script>
-<script src="./levels/team3.js?v=20260413a"></script>
-<script src="./levels/team4.js?v=20260413a"></script>
-<script src="./levels/team5.js?v=20260416a"></script>
-<script src="./levels/team6.js?v=20260416d"></script>
-<script src="./levels/team7.js?v=20260416c"></script>
-<script src="./levels/team8.js?v=20260416c"></script>
-<script src="./levels/team9.js?v=20260416d"></script>
-<script src="./game.js?v=20260416c"></script>
+<script src="./levels/shared.js?v=20260423a"></script>
+<script src="./levels/level1.js?v=20260423a"></script>
+<script src="./levels/level2.js?v=20260423a"></script>
+<script src="./levels/level3.js?v=20260423a"></script>
+<script src="./levels/level4.js?v=20260423a"></script>
+<script src="./levels/level5.js?v=20260423a"></script>
+<script src="./levels/level6.js?v=20260423a"></script>
+<script src="./levels/level7.js?v=20260423a"></script>
+<script src="./levels/level8.js?v=20260423a"></script>
+<script src="./levels/race1.js?v=20260423a"></script>
+<script src="./levels/race2.js?v=20260423a"></script>
+<script src="./levels/race3.js?v=20260423a"></script>
+<script src="./levels/race4.js?v=20260423a"></script>
+<script src="./levels/race5.js?v=20260423a"></script>
+<script src="./levels/team1.js?v=20260423a"></script>
+<script src="./levels/team2.js?v=20260423a"></script>
+<script src="./levels/team3.js?v=20260423a"></script>
+<script src="./levels/team4.js?v=20260423a"></script>
+<script src="./levels/team5.js?v=20260423a"></script>
+<script src="./levels/team6.js?v=20260423a"></script>
+<script src="./levels/team7.js?v=20260423a"></script>
+<script src="./levels/team8.js?v=20260423a"></script>
+<script src="./levels/team9.js?v=20260423a"></script>
+<script src="./game.js?v=20260423a"></script>
 </body>
 </html>
 

@@ -1,5 +1,6 @@
 // Double-player Race Level 5 (JSON)
-// Exposes: window.DoublePlayerLevels.startRaceLevel5(ctx, levelId)
+// Exposes:
+// window.DoublePlayerLevels.startRaceLevel5(ctx, levelId)
 (function () {
   window.DoublePlayerLevels = window.DoublePlayerLevels || {};
 
@@ -40,6 +41,7 @@
     const isTrue = (v) => v === true || v === 1 || String(v || "").toLowerCase() === "true";
 
     // tilesets
+
     const tilesetInfos = [];
     for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
       const firstgid = Number(ts.firstgid || 1);
@@ -105,12 +107,13 @@
       const footOffset = Math.max(6, Math.min(tileH * 0.6, h * 0.6));
       return {
         x: o.x + w / 2,
-        // born 区域较高时，角色应落在出生框底部附近，而不是贴着出生框顶部生成
+        // born 区域较高时，角色应落在出生框底部附近，而不是贴着出生框顶部生
         y: o.y + h - footOffset,
       };
     };
 
     // preload images
+
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
       for (const idStr of Object.keys(ts.tiles || {})) {
@@ -132,14 +135,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
 
         this._tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
         this.finished = false;
@@ -159,6 +160,7 @@
         this.winSensors = this.physics.add.staticGroup();
 
         // dynamic platforms/objects (physics)
+
         this.oscL = this.physics.add.group(); // two: solid+lmove periodic
         this.oscR = this.physics.add.group(); // two: solid+rmove periodic
 
@@ -198,7 +200,8 @@
             if (o.body.setImmovable) o.body.setImmovable(true);
             o.body.moves = false;
             if (!solid) o.body.enable = false;
-            // 显式同步命中框 size，避免只 setDisplaySize 导致 hitbox 不一致
+            // 显式同步命中size，避免只 setDisplaySize 导致 hitbox 不一
+
             if (o.body.setSize) o.body.setSize(w, h, true);
             if (o.body.updateFromGameObject) o.body.updateFromGameObject();
           }
@@ -217,7 +220,8 @@
           const s = window.PTLevelShared?.attachRectSensorToObject?.(this, o, { color: 0xff0000, enabled });
           if (s) return s;
 
-          // fallback（shared 未加载时）
+          // fallback（shared 未加载时
+
           const b = o.getBounds();
           const r = this.add.rectangle(b.centerX, b.centerY, b.width, b.height, 0xff0000, 0);
           this.physics.add.existing(r, true);
@@ -252,6 +256,7 @@
         const spikeH = tileH / 2;
 
         // Render layers and build physics
+
         const renderLayer = (layer, depthBase) => {
           if (!layer) return;
           for (let idx = 0; idx < mapW * mapH; idx++) {
@@ -274,6 +279,7 @@
             const lname = String(layer.name || "").toLowerCase();
 
             // dynamic walls/spikes/doors are spawned as objects; skip drawing base
+
             const dynWall = lname === "two" && isSolid && (isLmove || isRmove);
             const dynSpike = isDeath && (isLmove || isRmove || isLlmove);
             const dynDoor = isWin || isDie;
@@ -291,6 +297,7 @@
         renderLayer(layerFive, 20);
 
         // layer two: periodic moving walls + rmove death spikes + die doors
+
         if (layerTwo) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(layerTwo.data[idx] || 0);
@@ -329,6 +336,7 @@
             }
             if (isTrue(p.win)) {
               // win in layer two is also valid (just in case)
+
               const o = spawnBodyImage(cx, cy, tile, tileW * 2, tileH * 2, 30, false);
               o.body.enable = false;
               this.winDoors3.add(o);
@@ -340,6 +348,7 @@
         }
 
         // layer three: lmove / llmove death spikes + win doors
+
         const gatherLayerSpikesDoors = (layer, lname) => {
           if (!layer) return;
           for (let idx = 0; idx < mapW * mapH; idx++) {
@@ -381,6 +390,7 @@
         gatherLayerSpikesDoors(layerFour, "four");
 
         // layer five: rmove death spikes + die doors
+
         if (layerFive) {
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(layerFive.data[idx] || 0);
@@ -411,6 +421,7 @@
         }
 
         // periodic walls motion (3 tiles each way)
+
         const mediumMsPerTile = 150;
         const dur = 3 * mediumMsPerTile;
         for (const o of this.oscL.getChildren()) {
@@ -437,15 +448,15 @@
         }
 
         // players
+
         this.spawn1 = toSpawn(born1Obj, { x: tileW * 2, y: tileH * 2 });
         this.spawn2 = toSpawn(born2Obj, { x: tileW * 4, y: tileH * 2 });
         const mkPlayer = (x, y, tint) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setDepth(1000);
           p.setTint(tint);
-          p.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setDragX(this._tuning.dragX);
           p.body.setMaxVelocity(this._tuning.maxVx, this._tuning.maxVy);
           return p;
@@ -454,6 +465,7 @@
         this.p2 = mkPlayer(this.spawn2.x, this.spawn2.y, 0xfca5a5);
 
         // collisions
+
         const addDynCollider = (p, grp) => this.physics.add.collider(p, grp, (_a, b) => b?.body?.updateFromGameObject?.());
         this.physics.add.collider(this.p1, this.solids);
         this.physics.add.collider(this.p2, this.solids);
@@ -463,6 +475,7 @@
         addDynCollider(this.p2, this.oscR);
 
         // death / win
+
         this.respawnPlayer = (p) => {
           if (!p?.body) return;
           const isP1 = p === this.p1;
@@ -482,6 +495,7 @@
         this.physics.add.overlap(this.p2, this.winSensors, winNow);
 
         // triggers
+
         const s1 = makeSensor(t1);
         const s2 = makeSensor(t2);
         const s3 = makeSensor(t3);
@@ -631,16 +645,20 @@
         }
 
         // controls
+        // Race: left player uses WASD, right player uses arrow keys.
+
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
         };
-        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
-        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
-        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
-        const p2Left = codeToPhaserKeyCode(kb.p2.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
-        const p2Right = codeToPhaserKeyCode(kb.p2.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
-        const p2Jump = codeToPhaserKeyCode(kb.p2.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const leftKb = kb.p2 || kb.p1;
+        const rightKb = kb.p1 || kb.p2;
+        const p1Left = codeToPhaserKeyCode(leftKb.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
+        const p1Right = codeToPhaserKeyCode(leftKb.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
+        const p1Jump = codeToPhaserKeyCode(leftKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const p2Left = codeToPhaserKeyCode(rightKb.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p2Right = codeToPhaserKeyCode(rightKb.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p2Jump = codeToPhaserKeyCode(rightKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
         this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
         this.p2Keys = this.input.keyboard.addKeys({ left: p2Left, right: p2Right, jump: p2Jump });
       },
@@ -649,6 +667,7 @@
         if (this.finished) return;
 
         // 载人：站在移动物体上时，跟随物体相对位移
+
         window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [
           this.oscL,
           this.oscR,
@@ -658,7 +677,8 @@
           this.winDoors4,
         ]);
 
-        // death spikes 与 solid 墙体重叠时隐藏/禁用判定
+        // death spikes solid 墙体重叠时隐禁用判定
+
         window.PTLevelShared?.updateDeathSpikesHideOnSolidOverlap?.(this, [
           this.spikes3L,
           this.spikes4L,
@@ -668,7 +688,8 @@
           this.spikes5R,
         ], [this.solids, this.oscL, this.oscR]);
 
-        // 强制分离（避免 tween 平台穿模）
+        // 强制分离（避tween 平台穿模
+
         try {
           this.physics.world.collide(this.p1, this.oscL);
           this.physics.world.collide(this.p2, this.oscL);
@@ -684,9 +705,9 @@
           if (left) p.setVelocityX(-tuning.speed);
           else if (right) p.setVelocityX(tuning.speed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(tuning.jumpV);
         };
@@ -694,8 +715,14 @@
         step(this.p2, this.p2Keys, false);
 
         const outOfMap = (p) => p.x < -tileW || p.x > worldW + tileW || p.y < -tileH || p.y > worldH + tileH;
-        if (outOfMap(this.p1)) this.respawnPlayer(this.p1);
-        if (outOfMap(this.p2)) this.respawnPlayer(this.p2);
+        if (outOfMap(this.p1)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p1);
+        }
+        if (outOfMap(this.p2)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p2);
+        }
       },
     };
 

@@ -302,11 +302,31 @@
     // 开启 worldbounds 事件
     scene.physics.world.on("worldbounds", (body, up, down, left, right) => {
       if (!body || body.gameObject !== player) return;
-      if (killDown && down) onDeath?.();
+      if (killDown && down) {
+        try {
+          window.__PT_playFallDeathSfx?.();
+        } catch {}
+        onDeath?.();
+      }
       // 其它方向如需也判死，可以后续扩展
-      if (o.left && left) onDeath?.();
-      if (o.right && right) onDeath?.();
-      if (o.up && up) onDeath?.();
+      if (o.left && left) {
+        try {
+          window.__PT_playFallDeathSfx?.();
+        } catch {}
+        onDeath?.();
+      }
+      if (o.right && right) {
+        try {
+          window.__PT_playFallDeathSfx?.();
+        } catch {}
+        onDeath?.();
+      }
+      if (o.up && up) {
+        try {
+          window.__PT_playFallDeathSfx?.();
+        } catch {}
+        onDeath?.();
+      }
     });
 
     player.body.onWorldBounds = true;
@@ -332,6 +352,9 @@
   function restartLevel(ctx, levelId, startLevelFn, delayMs = 0) {
     if (!ctx || typeof startLevelFn !== "function") return;
     const run = () => {
+      try {
+        window.__PT_playDieSfx?.();
+      } catch {}
       try {
         // 先销毁旧 Phaser，再重新进入关卡，等价于“重新开始本关”
         if (typeof ctx.destroyPhaser === "function") ctx.destroyPhaser();
@@ -548,6 +571,88 @@
   }
 
   window.PTLevelShared = {
+    makeCharacterSpritesTransparent(scene) {
+      try {
+        window.__PT_makeSpriteBgTransparent?.(scene, [
+          "char_front",
+          "char_left",
+          "char_left2",
+          "char_left3",
+          "char_left4",
+          "char_right",
+          "char_right2",
+          "char_right3",
+          "char_right4",
+        ]);
+      } catch {}
+    },
+    // Unified player sizing/collider so feet stand on solids.
+    // scale ~ 2/3 of previous "2x" character size.
+    applyPlayerSizing(player, tileW, tileH, scale = 0.67) {
+      if (!player) return;
+      try {
+        player.setOrigin?.(0.5, 1);
+        const s = Number.isFinite(scale) && scale > 0 ? scale : 0.67;
+        const dispW = tileW * 0.6 * 2 * s;
+        const dispH = tileH * 0.9 * 2 * s;
+        player.setDisplaySize?.(dispW, dispH);
+        // Use a slightly smaller body than sprite to avoid wall embedding
+        // when new character frames have thicker visual outlines.
+        const bodyW = Math.max(8, Math.round(dispW * 0.72));
+        const bodyH = Math.max(8, Math.round(dispH * 0.78));
+        if (player.body?.setSize) player.body.setSize(bodyW, bodyH, false);
+        if (player.body?.setOffset) {
+          const ox = Math.max(0, Math.round((dispW - bodyW) / 2));
+          // Lift collision body a bit to avoid embedding into wall tiles.
+          const oy = Math.max(0, Math.round((dispH - bodyH) * 0.55));
+          player.body.setOffset(ox, oy);
+        }
+      } catch {}
+    },
+    playDieSfx() {
+      try {
+        window.__PT_playDieSfx?.();
+      } catch {}
+    },
+    playFallDeathSfx() {
+      try {
+        window.__PT_playFallDeathSfx?.();
+      } catch {}
+    },
+    // Character sprite helpers (multi-frame walk)
+    loadCharacterSprites(scene, assets) {
+      if (!scene?.load || !assets) return;
+      const abs = (p) => new URL(p, window.location.href).toString();
+      scene.load.image("char_front", abs(assets.characterFront));
+      scene.load.image("char_left", abs(assets.characterLeft));
+      scene.load.image("char_right", abs(assets.characterRight));
+      // extra walk frames (optional)
+      if (assets.characterLeft2) scene.load.image("char_left2", abs(assets.characterLeft2));
+      if (assets.characterLeft3) scene.load.image("char_left3", abs(assets.characterLeft3));
+      if (assets.characterLeft4) scene.load.image("char_left4", abs(assets.characterLeft4));
+      if (assets.characterRight2) scene.load.image("char_right2", abs(assets.characterRight2));
+      if (assets.characterRight3) scene.load.image("char_right3", abs(assets.characterRight3));
+      if (assets.characterRight4) scene.load.image("char_right4", abs(assets.characterRight4));
+    },
+    setCharacterPose(player, dir, nowMs) {
+      if (!player || typeof player.setTexture !== "function") return;
+      const d = dir === "left" ? "left" : dir === "right" ? "right" : "front";
+      if (d === "front") {
+        player.setTexture("char_front");
+        return;
+      }
+      const t = Number.isFinite(nowMs) ? nowMs : Date.now();
+      const frame = Math.floor(t / 120) % 4; // 0..3
+      const key = d === "left" ? (frame === 0 ? "char_left" : `char_left${frame + 1}`) : frame === 0 ? "char_right" : `char_right${frame + 1}`;
+      // Fallback to base key if extra frame not loaded.
+      try {
+        const tex = player.scene?.textures?.get?.(key);
+        if (tex && tex.key !== "__MISSING") player.setTexture(key);
+        else player.setTexture(d === "left" ? "char_left" : "char_right");
+      } catch {
+        player.setTexture(d === "left" ? "char_left" : "char_right");
+      }
+    },
     codeToPhaserKeyCode,
     resolveTilesetImageUrl,
     resolveTilesetImageUrlEx,

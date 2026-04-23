@@ -1,5 +1,6 @@
 // Team-up Challenges Level 7 (double7.json)
-// Exposes: window.TeamUpLevels.startTeamLevel7(ctx, levelId)
+// Exposes:
+// window.TeamUpLevels.startTeamLevel7(ctx, levelId)
 (function () {
   window.TeamUpLevels = window.TeamUpLevels || {};
 
@@ -99,6 +100,7 @@
       opObjects.find((o) => propTrue(o.properties, name) || String(o.name || "").toLowerCase() === String(name).toLowerCase()) || null;
 
     // touches
+
     const t0 = touchObj("touch");
     const t1 = touchObj("touch1");
     const t2 = touchObj("touch2");
@@ -142,14 +144,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.deathInvulnMs = 650;
         this.lastRespawnAt1 = -1e9;
@@ -193,30 +193,37 @@
         };
 
         // Groups
+
         this.solids = this.physics.add.staticGroup();
 
         // Layer4 solids to disappear
+
         this.layer4Solid = this.physics.add.staticGroup();
 
         // Layer4/5 vanish1/vanish2
+
         this.vanish1_4 = this.physics.add.staticGroup();
         this.vanish1_5 = this.physics.add.staticGroup();
         this.vanish2_4 = this.physics.add.staticGroup();
         this.vanish2_5 = this.physics.add.staticGroup();
 
         // Layer4 empty / empty1 to disappear
+
         this.empty_4 = this.physics.add.staticGroup();
         this.empty1_4 = this.physics.add.staticGroup();
 
         // Layer3 b/r to disappear
+
         this.b_3 = this.physics.add.staticGroup();
         this.r_3 = this.physics.add.staticGroup();
 
         // Death hazards
+
         this.death = this.physics.add.staticGroup(); // property death (enabled at touch1/touch5)
         this.death1 = this.physics.add.staticGroup(); // property death1 (enabled at touch2)
 
         // Controls / Move platforms
+
         this.layer1Move = this.physics.add.group(); // move on layer1 (appear at touch3, then up at touch9)
         this.move = this.physics.add.group(); // move on layer4
         this.move1 = this.physics.add.group(); // move1 on layer4/5
@@ -224,6 +231,7 @@
         this.move5 = this.physics.add.group(); // move on layer5 (optional)
 
         // Win rectangles (always on)
+
         this.blueWinRects = [];
         this.redWinRects = [];
 
@@ -235,6 +243,7 @@
         };
 
         // Scan layers and spawn
+
         for (const layer of tileLayers) {
           const lname = String(layer.name || "");
           const data = layer.data;
@@ -270,6 +279,7 @@
             const isRedWin = p.redwin === true;
 
             // Win (layer3)
+
             if (isBlueWin) {
               const s = this.add.rectangle(cx, cy, tileW * 2, tileH * 2, 0x0000ff, 0);
               this.physics.add.existing(s, true);
@@ -284,6 +294,7 @@
             }
 
             // Layer1 move appears later
+
             if (isLayer1 && isMove) {
               const o = spawnImageOrRect(cx, cy, tileW, tileH, key || imgKeyByFile("earthWall.png"), 20);
               freezeObj(o, true);
@@ -294,6 +305,7 @@
             }
 
             // Move platforms (always exist unless explicitly removed/disappeared)
+
             if (isLayer4 && isMove) {
               const o = spawnImageOrRect(cx, cy, tileW, tileH, key || imgKeyByFile("earthWall.png"), 20);
               freezeObj(o, true);
@@ -320,6 +332,7 @@
             }
 
             // Death hazards (enabled later)
+
             if (isLayer3 && isDeath) {
               const o = spawnImageOrRect(cx, cy, tileW * 2, tileH / 2, key || imgKeyByFile("trap.png"), 35);
               freezeObj(o, true);
@@ -338,6 +351,7 @@
             }
 
             // Vanish1/2 on layer4/5
+
             if (isLayer4 && isVanish1) {
               const o = spawnImageOrRect(cx, cy, tileW, tileH, key || imgKeyByFile("earthWall.png"), 22);
               freezeObj(o, true);
@@ -364,6 +378,7 @@
             }
 
             // Empty on layer4
+
             if (isLayer4 && isEmpty) {
               const o = spawnImageOrRect(cx, cy, tileW, tileH, key || imgKeyByFile("earthWall.png"), 22);
               freezeObj(o, true);
@@ -378,6 +393,7 @@
             }
 
             // b/r on layer3
+
             if (isLayer3 && isB) {
               const o = spawnImageOrRect(cx, cy, tileW, tileH, key || imgKeyByFile("earthWall.png"), 22);
               freezeObj(o, true);
@@ -392,6 +408,7 @@
             }
 
             // Layer4 solid disappears at touch (but initially solid)
+
             if (isLayer4 && isSolid) {
               const o = spawnImageOrRect(cx, cy, tileW, tileH, key || imgKeyByFile("earthWall.png"), 15);
               freezeObj(o, true);
@@ -400,6 +417,7 @@
             }
 
             // Other solids (enabled)
+
             if (isSolid) {
               const r = this.add.rectangle(cx, cy, tileW, tileH, 0x000000, 0);
               this.physics.add.existing(r, true);
@@ -409,6 +427,7 @@
             }
 
             // Non-solid decorative render
+
             if (key && !isSolid) drawStatic(cx, cy, key, tileW, tileH);
           }
         }
@@ -434,12 +453,12 @@
         tweenOscX(this.move5, dx2);
 
         // Players
+
         const mkPlayer = (x, y, tint) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
-          p.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setDragX(900);
           p.body.setMaxVelocity(320, 900);
           return p;
@@ -459,6 +478,7 @@
         };
 
         // Colliders
+
         this.physics.add.collider(this.p1, this.solids);
         this.physics.add.collider(this.p2, this.solids);
         for (const grp of [this.layer4Solid, this.vanish1_4, this.vanish1_5, this.vanish2_4, this.vanish2_5, this.empty_4, this.empty1_4, this.b_3, this.r_3]) {
@@ -472,10 +492,12 @@
 
         // Win overlap check uses rectangles directly; no collider required.
 
+
         const hitDeadly = (player) => {
           const isP1 = player === this.p1;
           const last = isP1 ? this.lastRespawnAt1 : this.lastRespawnAt2;
           if (this.time.now - last < this.deathInvulnMs) return;
+          window.PTLevelShared?.playDieSfx?.();
           this.respawnPlayer(player);
         };
         this.physics.add.overlap(this.p1, this.death, () => hitDeadly(this.p1));
@@ -548,7 +570,8 @@
             o.setVisible(true);
             if (o.body) o.body.enable = true;
           }
-          // start horizontal oscillation for layer1 move
+          // start horizontal oscillation
+          // for layer1 move
           const dx = dx2;
           for (const o of this.layer1Move.getChildren()) {
             this.tweens.add({
@@ -609,6 +632,7 @@
         });
 
         // Inputs
+
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
@@ -629,6 +653,7 @@
         if (this.finished) return;
 
         // Victory check: simultaneous touch of layer3 bluewin and redwin
+
         this._p1InBlue = false;
         this._p2InRed = false;
         const pb1 = this.p1.getBounds();
@@ -654,10 +679,17 @@
         }
 
         // Boundary death -> respawn
+
         const vb = this.cameras.main.worldView;
         const hitVb = (b) => b.bottom >= vb.bottom - 2 || b.top <= vb.top + 2 || b.left <= vb.left + 2 || b.right >= vb.right - 2;
-        if (hitVb(this.p1.getBounds())) this.respawnPlayer(this.p1);
-        if (hitVb(this.p2.getBounds())) this.respawnPlayer(this.p2);
+        if (hitVb(this.p1.getBounds())) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p1);
+        }
+        if (hitVb(this.p2.getBounds())) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p2);
+        }
 
         const step = (p, keys, isP1) => {
           const tuning = this._tuning || { speed: 300, jumpV: -920 };
@@ -669,9 +701,9 @@
           if (left) p.setVelocityX(-speed);
           else if (right) p.setVelocityX(speed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(jumpV);
         };
@@ -679,6 +711,7 @@
         step(this.p2, this.p2Keys, false);
 
         // Relative movement for moving platforms
+
         window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [this.move, this.move1, this.move2, this.move5, this.layer1Move]);
       },
     };

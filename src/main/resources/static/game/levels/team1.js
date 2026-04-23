@@ -165,14 +165,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.redCleared = false;
         this.blueCleared = false;
@@ -270,10 +268,8 @@
           const tuning = this._tuning;
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
-          p.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
-          p.body.setOffset(0, 0);
           p.body.setDragX(tuning.dragX);
           p.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
           this.physics.add.collider(p, this.solids);
@@ -287,6 +283,7 @@
         this.p2 = mkPlayer(this.p2Spawn.x, this.p2Spawn.y, 0xfca5a5);
 
         const respawn = (player, sp) => {
+          window.PTLevelShared?.playDieSfx?.();
           player.setPosition(sp.x, sp.y);
           player.body.setVelocity(0, 0);
         };
@@ -386,10 +383,12 @@
           !!p &&
           (p.x < -tileW || p.x > worldW + tileW || p.y < -tileH || p.y > worldH + tileH);
         if (hitGameViewportBottom(this.p1) || outOfMap(this.p1)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.p1.setPosition(this.p1Spawn.x, this.p1Spawn.y);
           this.p1.body?.setVelocity(0, 0);
         }
         if (hitGameViewportBottom(this.p2) || outOfMap(this.p2)) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.p2.setPosition(this.p2Spawn.x, this.p2Spawn.y);
           this.p2.body?.setVelocity(0, 0);
         }
@@ -402,9 +401,9 @@
           if (left) p.setVelocityX(-pSpeed);
           else if (right) p.setVelocityX(pSpeed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (allowTouch && mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) {
             p.setVelocityY(jumpV);

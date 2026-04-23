@@ -1,5 +1,6 @@
 // Team-up Challenges Level 6 (double6.json)
-// Exposes: window.TeamUpLevels.startTeamLevel6(ctx, levelId)
+// Exposes:
+// window.TeamUpLevels.startTeamLevel6(ctx, levelId)
 (function () {
   window.TeamUpLevels = window.TeamUpLevels || {};
 
@@ -130,14 +131,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.deathInvulnMs = 650;
         this.lastRespawnAt1 = -1e9;
@@ -181,12 +180,14 @@
         };
 
         // Base solids
+
         this.solids = this.physics.add.staticGroup();
 
         const deathW = tileW * 2;
         const deathH = tileH / 2;
 
         // hazards (initially disabled for those that appear later)
+
         this.deathObjs = []; // death
         this.death1Objs = []; // death1
         this.death3Objs = []; // death3
@@ -194,24 +195,29 @@
         this.death5Objs = []; // death5
 
         // moving platform (layer1 move): enable on combo
+
         this.moveGroup = this.physics.add.group();
 
         // vanish blocks (layer4 vanish1/vanish2): removed on touch2/touch4
+
         this.vanish1Group = this.physics.add.staticGroup();
         this.vanish2Group = this.physics.add.staticGroup();
 
         // win rectangles (from tiles)
+
         this._winBlueRects = [];
         this._winRedRects = [];
         this._winActive = false;
 
         // layer3 redwin / bluewin (disappear on combo)
+
         this._layer3RedwinRects = [];
         this._layer3BluewinRects = [];
 
         const layerNameIs = (layer, name) => String(layer?.name || "").toLowerCase() === String(name).toLowerCase();
 
         // Scan tile layers and spawn needed objects
+
         for (const layer of tileLayers) {
           const lname = String(layer.name || "");
           const data = layer.data;
@@ -230,8 +236,10 @@
             const objKey = key || imgKeyByFile("earthWall.png") || imgKeyByFile("trap.png") || null;
 
             // render passive solids
+
             if (p.solid === true) {
               // move/vanish/death hazards are handled separately below
+
               if (p.move === true && lname === "1") continue;
               if ((p.death === true || p.death1 === true || p.death4 === true) && lname === "1") continue;
               if (p.vanish1 === true || p.vanish2 === true) continue;
@@ -240,6 +248,7 @@
               this.physics.add.existing(r, true);
               this.solids.add(r);
               // Keep static wall visuals consistent with other coop levels.
+
               const wallKey = key || imgKeyByFile("earthWall.png") || imgKeyByFile("grey.png") || null;
               if (wallKey) {
                 const wall = this.add.image(cx, cy, wallKey);
@@ -250,6 +259,7 @@
             }
 
             // Layer 1
+
             if (lname === "1") {
               if (p.move === true) {
                 const o = spawnImageOrRect(cx, cy, tileW, tileH, objKey, 20);
@@ -291,6 +301,7 @@
             }
 
             // Layer 3
+
             if (lname === "3") {
               if (p.death3 === true) {
                 const o = spawnImageOrRect(cx, cy, deathW, deathH, objKey, 35);
@@ -320,6 +331,7 @@
             }
 
             // Layer 4 vanish blocks
+
             if (lname === "4") {
               if (p.vanish1 === true) {
                 const o = spawnImageOrRect(cx, cy, tileW, tileH, objKey || imgKeyByFile("earthWall.png"), 20);
@@ -336,12 +348,12 @@
         }
 
         // players
+
         const mkPlayer = (x, y, tint) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
-          p.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setDragX(900);
           p.body.setMaxVelocity(320, 900);
           return p;
@@ -362,6 +374,7 @@
         };
 
         // colliders
+
         this.physics.add.collider(this.p1, this.solids);
         this.physics.add.collider(this.p2, this.solids);
         this.physics.add.collider(this.p1, this.vanish1Group);
@@ -372,18 +385,21 @@
         this.physics.add.collider(this.p2, this.moveGroup);
 
         // deadly overlap
+
         this.deadlyGroup = this.physics.add.group();
         for (const o of [...this.deathObjs, ...this.death1Objs, ...this.death3Objs, ...this.death4Objs, ...this.death5Objs]) this.deadlyGroup.add(o);
         const hitDeadly = (player) => {
           const isP1 = player === this.p1;
           const last = isP1 ? this.lastRespawnAt1 : this.lastRespawnAt2;
           if (this.time.now - last < this.deathInvulnMs) return;
+          window.PTLevelShared?.playDieSfx?.();
           this.respawnPlayer(player);
         };
         this.physics.add.overlap(this.p1, this.deadlyGroup, () => hitDeadly(this.p1));
         this.physics.add.overlap(this.p2, this.deadlyGroup, () => hitDeadly(this.p2));
 
         // Touch sensors
+
         const makeSensor = (obj) => {
           if (!obj) return null;
           const x = Number(obj.x || 0);
@@ -465,6 +481,7 @@
         });
 
         // combo: touch5 + touch6 simultaneously (record by which player)
+
         this._comboDone = false;
         this._p1Touch5 = false;
         this._p2Touch6 = false;
@@ -477,8 +494,10 @@
           if (!ok) return;
           this._comboDone = true;
           // layer3 redwin / bluewin disappear
+
           for (const s of [...this._layer3RedwinRects, ...this._layer3BluewinRects]) s.destroy();
           // enable move + win sensors
+
           for (const o of this.moveGroup.getChildren()) {
             o.setVisible(true);
             if (o.body) o.body.enable = true;
@@ -529,6 +548,7 @@
         }
 
         // keyboard
+
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
@@ -548,6 +568,7 @@
         if (this.finished) return;
 
         // Win check only after combo.
+
         if (this._winActive) {
           const pb1 = this.p1.getBounds();
           const pb2 = this.p2.getBounds();
@@ -573,10 +594,17 @@
         }
 
         // viewport boundary death -> respawn
+
         const vb = this.cameras.main.worldView;
         const hitVb = (b) => b.bottom >= vb.bottom - 2 || b.top <= vb.top + 2 || b.left <= vb.left + 2 || b.right >= vb.right - 2;
-        if (hitVb(this.p1.getBounds())) this.respawnPlayer(this.p1);
-        if (hitVb(this.p2.getBounds())) this.respawnPlayer(this.p2);
+        if (hitVb(this.p1.getBounds())) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p1);
+        }
+        if (hitVb(this.p2.getBounds())) {
+          window.PTLevelShared?.playFallDeathSfx?.();
+          this.respawnPlayer(this.p2);
+        }
 
         const step = (p, keys, isP1) => {
           const tuning = this._tuning || { speed: 300, jumpV: -920 };
@@ -588,9 +616,9 @@
           if (left) p.setVelocityX(-speed);
           else if (right) p.setVelocityX(speed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(jumpV);
         };
@@ -599,6 +627,7 @@
         step(this.p2, this.p2Keys, false);
 
         // Relative movement: carry players standing on moving `move` platform.
+
         window.PTLevelShared?.carryPlayersOnMovingObjects?.(this, [this.p1, this.p2], [this.moveGroup]);
       },
     };

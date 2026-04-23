@@ -1,5 +1,6 @@
 // Single-player Level 5 (trigger mechanics restored)
-// Exposes: window.SinglePlayerLevels.startLevel5(ctx, levelId)
+// Exposes:
+// window.SinglePlayerLevels.startLevel5(ctx, levelId)
 (function () {
   window.SinglePlayerLevels = window.SinglePlayerLevels || {};
 
@@ -37,8 +38,9 @@
     const resolveTilesetImageUrl = (imageSource, baseUrl) =>
       window.PTLevelShared?.resolveTilesetImageUrl?.(imageSource, baseUrl) ?? null;
 
-    // TSX 加载/解析统一走共享模块（减少重复）
-    const fetchTsxText = (tsxSource, baseUrl) => window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
+    // TSX 加载/解析统一走共享模块（减少重复
+    const fetchTsxText = (tsxSource, baseUrl) =>
+ window.PTLevelShared?.fetchTsxText?.(tsxSource, baseUrl);
     const parseTsx = (tsxText) => window.PTLevelShared?.parseTsx?.(tsxText);
     const codeToPhaserKeyCode = (code) => window.PTLevelShared?.codeToPhaserKeyCode?.(code) ?? null;
 
@@ -149,8 +151,9 @@
       }
     }
 
-    // 人物参数统一走共享模块（方便全关统一调整）
-    const tuning = window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 220, maxVy: 900, dragX: 900 };
+    // 人物参数统一走共享模块（方便全关统一调整
+    const tuning =
+      window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 220, maxVy: 900, dragX: 900 };
     const wallMoveSpeed = 520; // 迅速移动（rrmove+solid 墙体：加快速度）
     const scene = {
       preload: function () {
@@ -158,14 +161,12 @@
         this.load.on("loaderror", (file) => {
           this._loadErrors.push(file?.url || file?.src || file?.key || "unknown");
         });
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.dead = false;
         this.lastRespawnAt = -1e9;
@@ -175,8 +176,9 @@
         this.physics.world.gravity.y = tuning.gravityY;
 
         this.cameras.main.setBounds(0, 0, worldW, worldH);
-        // 单人关卡背景统一：世界内灰底，世界外保持主页面背景
+        // 单人关卡背景统一：世界内灰底，世界外保持主页面背
         window.PTLevelShared?.applyWorldGreyBackdrop?.(this, worldW, worldH);
+
         const zoom = Math.min(this.scale.width / worldW, this.scale.height / worldH);
         this.cameras.main.setZoom(Math.min(1, zoom));
         this.cameras.main.centerOn(worldW / 2, worldH / 2);
@@ -187,7 +189,7 @@
 
         for (const layer of tileLayers) {
           const layerName = String(layer.name || "").toLowerCase();
-          // 第5关 `one` 图层是蓝色铺底，会把关卡区域染成蓝色；这里不绘制它，统一用灰底。
+          // `one` 图层是蓝色铺底，会把关卡区域染成蓝色；这里不绘制它，统一用灰底
           if (layerName === "one") continue;
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(layer.data[idx] || 0);
@@ -218,10 +220,8 @@
         }
 
         this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
-        this.player.setDisplaySize(tileW * 1.2, tileH * 1.8);
+        window.PTLevelShared?.applyPlayerSizing?.(this.player, tileW, tileH);
         this.player.body.setCollideWorldBounds(true);
-        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
-        this.player.body.setOffset(0, 0);
         this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
         this.player.body.setDragX(tuning.dragX);
         this.physics.add.collider(this.player, this.solids);
@@ -247,12 +247,11 @@
           if (this.time.now - this.lastRespawnAt < this.deathInvulnMs) return;
           this.dead = true;
           this.player.body.setVelocity(0, 0);
-          // 需求：死亡 = 重新开始本关（事件全部重置）
+          // 需求：死亡 = 重新开始本关（事件全部重置
           window.PTLevelShared?.restartLevel?.(ctx, levelId, window.SinglePlayerLevels?.startLevel5, 450);
         };
 
-        // 只隐藏“最底下、且在地图边缘的那一个刺”（包含动态 rmove 刺）。
-        // 你描述的是“最下面在地图边缘的那个刺”，所以这里优先挑选最底部并且更靠边的那根。
+        // 只隐藏“最底下、且在地图边缘的那一个刺”（包含动rmove 刺）        // 你描述的是“最下面在地图边缘的那个刺”，所以这里优先挑选最底部并且更靠边的那根
         const allSpikeSpawns = []
           .concat(allDeathSpawns || [])
           .concat(moving.two_rmove_spikes || [])
@@ -270,6 +269,7 @@
             const edge1 = Math.min(x1, worldW - x1);
             const edge2 = Math.min(x2, worldW - x2);
             // 优先更低；同一高度优先更贴边；再同一贴边程度取更靠右（稳定）
+
             if (y2 > y1 || (y2 === y1 && (edge2 < edge1 || (edge2 === edge1 && x2 > x1)))) bottomEdgeSpike = s;
           }
         }
@@ -278,11 +278,12 @@
 
         const spawnSpike = (s) => {
           // 隐藏：地图边缘最低那一根刺
+
           if (isBottomEdgeSpike(s)) return null;
           const sp = this.add.image(s.x, s.y, s.key).setOrigin(0, 1);
           sp.setDisplaySize(tileW * 2, tileH);
-          // 刺需要正常显示（不要整体压到背景后面）
-          sp.setDepth(10);
+          // 刺需要正常显示（不要整体压到背景后面          sp.setDepth(10);
+
           this.physics.add.existing(sp);
           if (sp.body) {
             sp.body.setAllowGravity(false);
@@ -299,6 +300,7 @@
         this.layerFourRmoveSpikes = moving.four_rmove_spikes.map(spawnSpike).filter(Boolean);
         this.layerFiveRmoveSpikes = moving.five_rmove_spikes.map(spawnSpike).filter(Boolean);
         // touch1 / touch4 spikes are hidden initially.
+
         for (const sp of this.layerFourRmoveSpikes) sp.setAlpha(0);
         for (const sp of this.layerFiveRmoveSpikes) sp.setAlpha(0);
 
@@ -429,6 +431,7 @@
       update: function () {
         if (!this.player?.body || this.dead || this.finished) return;
         if (this.player.x < -tileW || this.player.x > worldW + tileW || this.player.y < -tileH || this.player.y > worldH + tileH) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.player.body.setVelocity(0, 0);
           this.player.setPosition(spawnX, spawnY);
           this.lastRespawnAt = this.time.now;
@@ -449,9 +452,9 @@
               w._moveRemaining -= step;
               w.body.updateFromGameObject?.();
               w.body.setVelocityX(w._moveDir * wallMoveSpeed);
-              // 关键：墙体移动后立刻做一次碰撞分离，避免“高速穿墙”
+              // 关键：墙体移动后立刻做一次碰撞分离，避免“高速穿墙
               this.physics.world.collide(this.player, w);
-              // 站在移动墙上时，跟随墙体位移（避免掉下去）
+              // 站在移动墙上时，跟随墙体位移（避免掉下去
               const dx = w.x - prevX;
               if (dx && (this.player.body.blocked.down || this.player.body.touching.down)) {
                 const pb = this.player.getBounds();
@@ -486,9 +489,9 @@
         if (left) this.player.setVelocityX(-speed);
         else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
-        if (left) this.player.setTexture("char_left");
-        else if (right) this.player.setTexture("char_right");
-        else this.player.setTexture("char_front");
+        if (left) window.PTLevelShared?.setCharacterPose?.(this.player, "left", this.time?.now);
+        else if (right) window.PTLevelShared?.setCharacterPose?.(this.player, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.player, "front", this.time?.now);
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);

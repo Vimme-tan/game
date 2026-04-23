@@ -176,7 +176,7 @@
                  "opacity":1,
                  "properties":[
                         {
-                         "name":"bron1",
+                         "name":"born1",
                          "type":"bool",
                          "value":true
                         }],
@@ -194,7 +194,7 @@
                  "opacity":1,
                  "properties":[
                         {
-                         "name":"bron2",
+                         "name":"born2",
                          "type":"bool",
                          "value":true
                         }],

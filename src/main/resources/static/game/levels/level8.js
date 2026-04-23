@@ -1,5 +1,6 @@
 // Single-player Level 8 (JSON)
-// Exposes: window.SinglePlayerLevels.startLevel8(ctx, levelId)
+// Exposes:
+// window.SinglePlayerLevels.startLevel8(ctx, levelId)
 (function () {
   window.SinglePlayerLevels = window.SinglePlayerLevels || {};
 
@@ -42,8 +43,8 @@
     for (const ts of Array.isArray(mapData.tilesets) ? mapData.tilesets : []) {
       const firstgid = Number(ts.firstgid || 1);
       if (!ts.source) continue;
-      // eight.json 里 tileset source 是 ../tiled/examples/*.tsx
-      // 共享模块 fetchTsxText 会自动用 basename 在同目录回退（level8 目录下有 dung.tsx / fake.tsx）
+      // eight.json tileset source ../tiled/examples/*.tsx
+      // 共享模块 fetchTsxText 会自动用 basename 在同目录回退（level8 目录下有 dung.tsx / fake.tsx
       const tsxText = await fetchTsxText(ts.source, mapBase);
       const parsed = parseTsx(tsxText);
       tilesetInfos.push({ firstgid, ...parsed });
@@ -96,6 +97,7 @@
     const spawnY = bornObj ? bornObj.y - Math.max(6, Math.min(tileH * 0.6, (bornObj.height || tileH) * 0.6)) : tileH * 2;
 
     // preload images
+
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
       for (const idStr of Object.keys(ts.tiles || {})) {
@@ -112,14 +114,12 @@
         this.load.on("loaderror", (file) => {
           console.warn("level8 loaderror:", file?.key, file?.src);
         });
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
 
         this.finished = false;
         this._tuning =
@@ -155,6 +155,7 @@
         this.winSensors = this.physics.add.staticGroup();
 
         // Render tile layers as images + build collisions.
+
         for (const layer of tileLayers) {
           const data = layer.data;
           for (let idx = 0; idx < mapW * mapH; idx++) {
@@ -176,16 +177,17 @@
         }
 
         // player
+
         this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
         this.player.setDepth(1000); // 永远显示在最上层（避免被地图 tile 覆盖导致“看不到人物”）
-        this.player.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
+        window.PTLevelShared?.applyPlayerSizing?.(this.player, tileW, tileH);
         this.player.body.setCollideWorldBounds(true);
-        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setDragX(this._tuning.dragX);
         this.player.body.setMaxVelocity(this._tuning.maxVx, this._tuning.maxVy);
         this.physics.add.collider(this.player, this.solids);
 
         // death => restart level (重置事件)
+
         const restart = () => window.PTLevelShared?.restartLevel?.(ctx, levelId);
         this.physics.add.overlap(this.player, this.deathSensors, () => {
           if (this.finished) return;
@@ -202,6 +204,7 @@
         });
 
         // input
+
         this.cursors = this.input.keyboard.createCursorKeys();
       },
       update: function () {
@@ -216,9 +219,9 @@
         else if (right) this.player.setVelocityX(tuning.speed);
         else this.player.setVelocityX(0);
 
-        if (left) this.player.setTexture("char_left");
-        else if (right) this.player.setTexture("char_right");
-        else this.player.setTexture("char_front");
+        if (left) window.PTLevelShared?.setCharacterPose?.(this.player, "left", this.time?.now);
+        else if (right) window.PTLevelShared?.setCharacterPose?.(this.player, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.player, "front", this.time?.now);
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.cursors.up) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) {
@@ -226,8 +229,10 @@
         }
 
         // 掉出地图边界：死亡重开
+
         const outOfMap = this.player.x < -tileW || this.player.x > worldW + tileW || this.player.y < -tileH || this.player.y > worldH + tileH;
         if (outOfMap) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           window.PTLevelShared?.restartLevel?.(ctx, levelId);
         }
       },

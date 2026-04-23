@@ -1,5 +1,6 @@
 // Single-player Level 7 (match previous single-player map logic)
-// Exposes: window.SinglePlayerLevels.startLevel7(ctx, levelId)
+// Exposes:
+// window.SinglePlayerLevels.startLevel7(ctx, levelId)
 (function () {
   window.SinglePlayerLevels = window.SinglePlayerLevels || {};
 
@@ -35,6 +36,7 @@
     const mapBase = new URL(mapUrl);
 
     // level7 旧贴图映射：1.png -> grey.png
+
     const lvl7LegacyMap = { "1.png": "grey.png", "2.png": "earthWall.png", "3.png": "earthWall2.png", "4.png": "doorRedStroked.png", "5.png": "trap.png" };
     const resolveTilesetImageUrl = (imageSource, baseUrl) =>
       window.PTLevelShared?.resolveTilesetImageUrlEx?.(imageSource, baseUrl, lvl7LegacyMap) ??
@@ -100,6 +102,7 @@
     const s_push = sensorObj("push");
 
     // preload images used by tilesets
+
     const imageToKey = new Map();
     for (const ts of tilesetInfos) {
       for (const idStr of Object.keys(ts.tiles || {})) {
@@ -120,19 +123,16 @@
             console.warn("[level7 loaderror]", file?.key, file?.src || file?.url);
           } catch {}
         });
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
 
         this.finished = false;
         this._restarting = false;
-        this._spawnGraceUntil = this.time.now + 650; // 防止出生点立刻触发死亡导致闪烁
-
+        this._spawnGraceUntil = this.time.now + 650; // 防止出生点立刻触发死亡导致闪
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.physics.world.gravity.y = tuning.gravityY;
         this.cameras.main.setBounds(0, 0, worldW, worldH);
@@ -148,7 +148,7 @@
         const L4 = layerByName("four");
         const ordered = [L1, L2, L3, L4].filter(Boolean);
 
-        // 预收集 solid 单元格：用于“刺与 solid 重叠 -> 初始隐藏（仅事件触发才显示）”
+        // 预收solid 单元格：用于“刺solid 重叠 -> 初始隐藏（仅事件触发才显示）
         const solidCells = new Set();
         for (const layer of ordered) {
           const data = layer.data;
@@ -197,6 +197,7 @@
         };
 
         // death 判定用：让“可见刺”与“判定区”绑定，方便移动/隐藏/显示同步
+
         const attachDeadlySensor = (o) => {
           if (!o) return null;
           const b = o.getBounds();
@@ -241,6 +242,7 @@
         };
 
         // groups
+
         this.solids = this.physics.add.staticGroup();
         this.deadly = this.physics.add.staticGroup();
         this.dynamicSolids = this.physics.add.group();
@@ -248,6 +250,7 @@
         this.dynamicBombs = this.physics.add.group();
 
         // buckets by behavior
+
         const oneDeathMoveLeft = [];
         const oneRmoveWalls = [];
         const twoWalls = [];
@@ -263,6 +266,7 @@
         const fourBombs = [];
 
         // scan tiles, render, and spawn interactive objects
+
         for (const layer of ordered) {
           const lname = String(layer.name || "").toLowerCase();
           const data = layer.data;
@@ -280,12 +284,12 @@
             const isWin = p.win === true;
             const isRmove = p.rmove === true;
             const isTouchKey = p.touch === true;
-            // 炸弹：部分 tsx（例如 dung2）没有给 bomb tile 配置 properties，
-            // 这里用“属性优先 + 贴图名兜底”识别，保证炸弹一定会走“初始隐藏”逻辑。
+            // 炸弹：部tsx（例dung2）没有给 bomb tile 配置 properties            // 这里用“属性优+ 贴图名兜底”识别，保证炸弹一定会走“初始隐藏”逻辑
             const imgName = String(tile.imageSource || "").toLowerCase();
             const isBomb = (p.death2 === true && p.falling === true) || imgName.includes("bomb");
 
             // render base tile unless we spawn it as object
+
             const asObj = isTouchKey || isBomb || (isSolid && isRmove) || isDeath;
             if (!asObj) {
               drawTile(col, row, tile, isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH, isWin ? 30 : 8);
@@ -308,11 +312,11 @@
             }
 
             if (isDeath) {
-              // 刺尺寸：按单人关卡一致（宽=2格，高=半格）
+              // 刺尺寸：按单人关卡一致（2格，半格
               const o = spawnObjTile(col, row, tile, tileW * 2, tileH / 2, 26);
+
               this.dynamicDeadly.add(o);
-              // 需求：刺集体向右移动 1 格
-              o.x += tileW * 1;
+              // 需求：刺集体向右移1               o.x += tileW * 1;
               // bug汇总：刺向左移动半格，向下移动 0.3 格（在现有基础上微调）
               o.x -= tileW * 0.5;
               o.y += tileH * 0.3;
@@ -322,7 +326,8 @@
               attachDeadlySensor(o);
               syncDeadlySensor(o);
 
-              // 需求：与 solid 墙体重叠的刺初始隐藏，只有事件触发才显示
+              // 需求：solid 墙体重叠的刺初始隐藏，只有事件触发才显示
+
               const overlappedSolid = solidCells.has(`${col},${row}`);
               if (overlappedSolid) setDeadlyActive(o, false);
 
@@ -344,6 +349,7 @@
 
             if (isBomb) {
               // 炸弹改为正方形（居中显示，避免“太偏”）
+
               const o = spawnObjTile(col, row, tile, tileW, tileW, 35);
               o.setVisible(false);
               o.body.enable = false;
@@ -359,12 +365,11 @@
         // For your description, layer2/4 walls are all solid; they are in tile data.
 
         // player
+
         this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
         this.player.setDepth(1000);
-        this.player.setDisplaySize(tileW * 1.2, tileH * 1.8);
+        window.PTLevelShared?.applyPlayerSizing?.(this.player, tileW, tileH);
         this.player.body.setCollideWorldBounds(true);
-        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
-        this.player.body.setOffset(0, 0);
         this.player.body.setDragX(tuning.dragX);
         this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
         this.physics.add.collider(this.player, this.solids);
@@ -377,6 +382,7 @@
         };
 
         // death overlap
+
         this.physics.add.overlap(this.player, this.deadly, () => {
           if (this.time.now < this._spawnGraceUntil) return;
           restart();
@@ -387,11 +393,12 @@
         });
 
         // keys
+
         this.haveKey = false;
         const keyTouch = (k) => {
           if (!k?.body) return;
           this.haveKey = true;
-          // 需求：拿到 two 层 touch 钥匙后，two 层 death 刺向下移动 2 格（缩回墙内）
+          // 需求：拿到 two touch 钥匙后，two death 刺向下移2 格（缩回墙内
           if (twoKey.includes(k)) {
             for (const s of twoDeathUp) {
               setDeadlyActive(s, true);
@@ -405,6 +412,7 @@
         for (const k of [...twoKey, ...threeKey]) this.physics.add.overlap(this.player, k, () => keyTouch(k));
 
         // sensors
+
         const makeSensor = (obj) => {
           if (!obj) return null;
           const x = Number(obj.x || 0);
@@ -454,14 +462,16 @@
           }
         };
 
-        // 记录会移动的平台，用于“载人”（人物站上去不会掉）
+        // 记录会移动的平台，用于“载人”（人物站上去不会掉
         this._carryPlatforms = [];
+
         for (const w of oneRmoveWalls) this._carryPlatforms.push(w);
         for (const w of twoWallsRmove) this._carryPlatforms.push(w);
         for (const w of threeWallsRmove) this._carryPlatforms.push(w);
 
-        // move1：three 层 rmove 属性墙迅速右移 2 格
-        if (sensors.move1) {
+        // move1：three rmove 属性墙迅速右2
+         if (sensors.move1) {
+
           this.physics.add.overlap(this.player, sensors.move1, () => {
             once("move1", () => {
               for (const w of threeWallsRmove) tweenMove(w, tileW * 2, 0, 220, null);
@@ -470,32 +480,36 @@
         }
 
         // push：三层钥匙出现（并向右“推出去”）
+
         if (sensors.push) {
           this.physics.add.overlap(this.player, sensors.push, () => {
             once("push", () => {
               for (const k of threeKey) {
                 k.setVisible(true);
                 k.body.enable = true;
-                // 需求：三层钥匙向右平移出地图
+                // 需求：三层钥匙向右平移出地
                 tweenMove(k, worldW + tileW * 10, 0, 520, () => {
+
                   try {
                     k.destroy();
                   } catch {}
                 });
               }
-              // one: rmove+solid 墙向左推 9 格（符合旧逻辑）
+              // one: rmove+solid 墙向左推 9 格（符合旧逻辑
               for (const w of oneRmoveWalls) tweenMove(w, -tileW * 9, 0, 260, null);
             });
           });
         }
 
-        // move2：one 的 death 刺整体向左飞出地图
+        // move2：one death 刺整体向左飞出地
         if (sensors.move2) {
+
           this.physics.add.overlap(this.player, sensors.move2, () => {
             once("move2", () => {
               // 需求：触发后才显示；适当速度，能跳跃躲开
+
               const moveTiles = (worldW + tileW * 10) / tileW;
-              // 速度适中：按距离动态算时长，避免“太快来不及躲”
+              // 速度适中：按距离动态算时长，避免“太快来不及躲
               const dur = Math.max(2600, Math.round(moveTiles * 220));
               activateAndMove(oneDeathMoveLeft, -(worldW + tileW * 10), 0, dur, (o) => {
                 try {
@@ -507,12 +521,13 @@
           });
         }
 
-        // move3：two 的 death 刺上移1格；two 的 rmove wall 下移15格；two 的钥匙出现
+        // move3：two death 刺上格；two rmove wall 下移15格；two 的钥匙出
         if (sensors.move3) {
+
           this.physics.add.overlap(this.player, sensors.move3, () => {
             once("move3", () => {
-              // 触发时显示并移动（刺贴地）
-              activateAndMove(twoDeathUp, 0, -tileH * 1, 160, null);
+              // 触发时显示并移动（刺贴地              activateAndMove(twoDeathUp, 0, -tileH * 1, 160, null);
+
               for (const w of twoWallsRmove) tweenMove(w, 0, tileH * 15, 520, null);
               for (const k of twoKey) {
                 k.setVisible(true);
@@ -522,8 +537,9 @@
           });
         }
 
-        // jumpfall：three 的 death 刺上移1格
+        // jumpfall：three death 刺上
         if (sensors.jumpfall) {
+
           this.physics.add.overlap(this.player, sensors.jumpfall, () => {
             once("jumpfall", () => {
               activateAndMove(threeDeath, 0, -tileH * 1, 160, null);
@@ -532,6 +548,7 @@
         }
 
         // bombfall：需要拿到钥匙才触发；two 的炸弹显现并下落5格后消失
+
         if (sensors.bombfall) {
           this.physics.add.overlap(this.player, sensors.bombfall, () => {
             once("bombfall", () => {
@@ -547,7 +564,7 @@
                   pending = Math.max(0, pending - 1);
                   if (!this.finished && pending === 0 && typeof onLevelWin === "function") {
                     this.finished = true;
-                    onLevelWin(levelId, { message: "第 7 关完成。" });
+                    onLevelWin(levelId, { message: "7 关完成" });
                   }
                 });
               }
@@ -556,6 +573,7 @@
         }
 
         // controls
+
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || { p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" } };
         const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
         const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
@@ -565,7 +583,8 @@
       update: function () {
         if (!this.player?.body || this.finished) return;
 
-        // 可移动平台“载人”：人物站在平台上时，平台移动多少，人物就跟随多少（避免掉下去/穿透）
+        // 可移动平台“载人”：人物站在平台上时，平台移动多少，人物就跟随多少（避免掉下穿透）
+
         if (Array.isArray(this._carryPlatforms) && this._carryPlatforms.length) {
           const carryIfOn = (plat, dx, dy) => {
             if (!dx && !dy) return;
@@ -601,16 +620,18 @@
         else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
 
-        if (left) this.player.setTexture("char_left");
-        else if (right) this.player.setTexture("char_right");
-        else this.player.setTexture("char_front");
+        if (left) window.PTLevelShared?.setCharacterPose?.(this.player, "left", this.time?.now);
+        else if (right) window.PTLevelShared?.setCharacterPose?.(this.player, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.player, "front", this.time?.now);
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);
 
-        // 越界也判死（避免卡出世界）
-        if (this.time.now >= this._spawnGraceUntil) {
+        // 越界也判死（避免卡出世界
+        if (this.time.now >=
+ this._spawnGraceUntil) {
           if (this.player.x < -tileW || this.player.x > worldW + tileW || this.player.y < -tileH || this.player.y > worldH + tileH) {
+            window.PTLevelShared?.playFallDeathSfx?.();
             window.PTLevelShared?.restartLevel?.(ctx, levelId, window.SinglePlayerLevels?.startLevel7, 0);
           }
         }

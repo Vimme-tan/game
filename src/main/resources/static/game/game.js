@@ -196,6 +196,9 @@
   const assets = {
     menuBgm: "./assets/audio/bgm/menu_bgm.mp3",
     clickSfx: "./assets/audio/sfx/btn_click.wav",
+    dieSfx: "./assets/audio/sfx/die.wav",
+    fallDeathSfx: "./assets/audio/sfx/fall_death.wav",
+    winSfx: "./assets/audio/sfx/win.wav",
     level1Json: "./assets/maps/singleplayer/level1/one.json",
     level2Json: "./assets/maps/singleplayer/level2/level2.json",
     level3Json: "./assets/maps/singleplayer/level3/three.json",
@@ -222,6 +225,12 @@
     characterFront: "./assets/character/front.png",
     characterLeft: "./assets/character/left.png",
     characterRight: "./assets/character/right.png",
+    characterLeft2: "./assets/character/left2.png",
+    characterLeft3: "./assets/character/left3.png",
+    characterLeft4: "./assets/character/left4.png",
+    characterRight2: "./assets/character/right2.png",
+    characterRight3: "./assets/character/right3.png",
+    characterRight4: "./assets/character/right4.png",
   };
 
   const state = {
@@ -233,8 +242,14 @@
     volumeSaveTimer: null,
     menuBgmAudio: null,
     clickAudio: null,
+    dieAudio: null,
+    fallDeathAudio: null,
+    winAudio: null,
     hasBgmAudio: false,
     hasClickAudio: false,
+    hasDieAudio: false,
+    hasFallDeathAudio: false,
+    hasWinAudio: false,
     audioUnlocked: false,
     _winOnNext: null,
     _winOnExit: null,
@@ -563,6 +578,26 @@
 
   function setupMobileButtons() {
     if (!ui.mcLeft || !ui.mcRight || !ui.mcJump) return;
+    const ensurePadVisual = (btn, fallbackText) => {
+      if (!btn) return;
+      const img = btn.querySelector("img");
+      if (!img) {
+        btn.textContent = fallbackText;
+        return;
+      }
+      const showFallback = () => {
+        img.style.display = "none";
+        btn.textContent = fallbackText;
+      };
+      img.addEventListener("error", showFallback);
+      img.addEventListener("load", () => {
+        if (!img.naturalWidth || !img.naturalHeight) showFallback();
+      });
+    };
+    ensurePadVisual(ui.mcLeft, "←");
+    ensurePadVisual(ui.mcRight, "→");
+    ensurePadVisual(ui.mcJump, "↑");
+
     const bindHold = (el, down, up) => {
       el.addEventListener("pointerdown", (e) => {
         e.preventDefault();
@@ -686,7 +721,11 @@
     if (toolbar) toolbar.style.display = isPlaying ? "flex" : "none";
     // Keep mobile controls visible during level play only.
     const showMobile = Boolean(isPlaying) && state.controlMode === "mobile";
-    if (ui.mobileControls) ui.mobileControls.classList.toggle("active", showMobile);
+    if (ui.mobileControls) {
+      ui.mobileControls.classList.toggle("active", showMobile);
+      // Force visibility to avoid style collision from page/container layers.
+      ui.mobileControls.style.display = showMobile ? "block" : "none";
+    }
     if (!showMobile) resetTouchState();
     if (isPlaying && (state.mode === "coop" || state.mode === "race")) {
       scheduleApplyDualPlayerAppearance();
@@ -833,6 +872,9 @@
     const volume01 = Math.max(0, Math.min(1, state.volume / 100));
     if (state.menuBgmAudio) state.menuBgmAudio.volume = volume01;
     if (state.clickAudio) state.clickAudio.volume = volume01;
+    if (state.dieAudio) state.dieAudio.volume = volume01;
+    if (state.fallDeathAudio) state.fallDeathAudio.volume = volume01;
+    if (state.winAudio) state.winAudio.volume = volume01;
   }
 
   function saveVolumeDebounced() {
@@ -882,6 +924,42 @@
       debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "click_error", { src: assets.clickSfx });
     });
 
+    // Die SFX.
+    state.dieAudio = new Audio(assets.dieSfx);
+    state.dieAudio.preload = "auto";
+    state.dieAudio.addEventListener("canplaythrough", () => {
+      state.hasDieAudio = true;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "die_ready", { src: assets.dieSfx });
+    });
+    state.dieAudio.addEventListener("error", () => {
+      state.hasDieAudio = false;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "die_error", { src: assets.dieSfx });
+    });
+
+    // Fall-death SFX (boundary death).
+    state.fallDeathAudio = new Audio(assets.fallDeathSfx);
+    state.fallDeathAudio.preload = "auto";
+    state.fallDeathAudio.addEventListener("canplaythrough", () => {
+      state.hasFallDeathAudio = true;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "fall_death_ready", { src: assets.fallDeathSfx });
+    });
+    state.fallDeathAudio.addEventListener("error", () => {
+      state.hasFallDeathAudio = false;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "fall_death_error", { src: assets.fallDeathSfx });
+    });
+
+    // Win SFX.
+    state.winAudio = new Audio(assets.winSfx);
+    state.winAudio.preload = "auto";
+    state.winAudio.addEventListener("canplaythrough", () => {
+      state.hasWinAudio = true;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "win_ready", { src: assets.winSfx });
+    });
+    state.winAudio.addEventListener("error", () => {
+      state.hasWinAudio = false;
+      debugLog("run_ui_layout", "H3_audio_ready", "game.js:initMedia", "win_error", { src: assets.winSfx });
+    });
+
     applyVolumeToMedia();
   }
 
@@ -901,6 +979,38 @@
     } catch {
       // Keep silent when browser blocks autoplay or resource not ready.
     }
+  }
+
+  function playDieSfx() {
+    if (!state.hasDieAudio || !state.dieAudio) return;
+    try {
+      state.dieAudio.currentTime = 0;
+      state.dieAudio.play().catch(() => {});
+    } catch {}
+  }
+
+  window.__PT_playDieSfx = function __PT_playDieSfx() {
+    playDieSfx();
+  };
+
+  function playFallDeathSfx() {
+    if (!state.hasFallDeathAudio || !state.fallDeathAudio) return;
+    try {
+      state.fallDeathAudio.currentTime = 0;
+      state.fallDeathAudio.play().catch(() => {});
+    } catch {}
+  }
+
+  window.__PT_playFallDeathSfx = function __PT_playFallDeathSfx() {
+    playFallDeathSfx();
+  };
+
+  function playWinSfx() {
+    if (!state.hasWinAudio || !state.winAudio) return;
+    try {
+      state.winAudio.currentTime = 0;
+      state.winAudio.play().catch(() => {});
+    } catch {}
   }
 
   // Remove black background from character PNGs (simple chroma-key).
@@ -946,6 +1056,7 @@
   };
 
   async function onLevelWin(levelId, extra = {}) {
+    playWinSfx();
     const mode = state.mode;
     if (mode === "single") {
       const nextId = Number(levelId) + 1;

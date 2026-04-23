@@ -143,14 +143,12 @@
           // Keep running; helps diagnose missing assets quickly.
           console.warn("loaderror:", file?.key, file?.src);
         });
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.dead1 = false;
         this.dead2 = false;
@@ -504,9 +502,8 @@
         const mkPlayer = (x, y) => {
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setDepth(1000); // 永远显示在最上层（避免被地图 tile 覆盖导致“看不到人物”）
-          p.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
           p.body.setDragX(900);
           p.body.setMaxVelocity(320, 900);
           return p;
@@ -530,6 +527,7 @@
           if (which === 1) {
             if (this.dead1 || this.finished) return;
             this.dead1 = true;
+            window.PTLevelShared?.playDieSfx?.();
             p.body.setVelocity(0, 0);
             this.time.delayedCall(520, () => {
               this.dead1 = false;
@@ -540,6 +538,7 @@
           } else {
             if (this.dead2 || this.finished) return;
             this.dead2 = true;
+            window.PTLevelShared?.playDieSfx?.();
             p.body.setVelocity(0, 0);
             this.time.delayedCall(520, () => {
               this.dead2 = false;
@@ -739,16 +738,19 @@
         this.physics.add.overlap(this.p2, this.winSensors, winNow);
 
         // Controls
+        // Race: left player uses WASD, right player uses arrow keys.
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
         };
-        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
-        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
-        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
-        const p2Left = codeToPhaserKeyCode(kb.p2.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
-        const p2Right = codeToPhaserKeyCode(kb.p2.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
-        const p2Jump = codeToPhaserKeyCode(kb.p2.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const leftKb = kb.p2 || kb.p1;
+        const rightKb = kb.p1 || kb.p2;
+        const p1Left = codeToPhaserKeyCode(leftKb.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
+        const p1Right = codeToPhaserKeyCode(leftKb.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
+        const p1Jump = codeToPhaserKeyCode(leftKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const p2Left = codeToPhaserKeyCode(rightKb.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p2Right = codeToPhaserKeyCode(rightKb.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p2Jump = codeToPhaserKeyCode(rightKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
         this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
         this.p2Keys = this.input.keyboard.addKeys({ left: p2Left, right: p2Right, jump: p2Jump });
       },
@@ -843,9 +845,9 @@
           if (left) p.setVelocityX(-speed);
           else if (right) p.setVelocityX(speed);
           else p.setVelocityX(0);
-          if (left) p.setTexture("char_left");
-          else if (right) p.setTexture("char_right");
-          else p.setTexture("char_front");
+          if (left) window.PTLevelShared?.setCharacterPose?.(p, "left", this.time?.now);
+          else if (right) window.PTLevelShared?.setCharacterPose?.(p, "right", this.time?.now);
+          else window.PTLevelShared?.setCharacterPose?.(p, "front", this.time?.now);
           const wantJump = Phaser.Input.Keyboard.JustDown(keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
           if (wantJump && (p.body.blocked.down || p.body.touching.down)) p.setVelocityY(jumpV);
         };

@@ -198,14 +198,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
 
         // 保存到 scene 上，供 update 使用（避免出现 “tuning is not defined”）
@@ -336,10 +334,8 @@
           const tuning = this._tuning || { speed: 300, jumpV: -920, maxVx: 320, maxVy: 900, dragX: 900 };
           const p = this.physics.add.sprite(x, y, "char_front").setOrigin(0.5, 1);
           p.setTint(tint);
-          p.setDisplaySize(tileW * 0.55 * 2, tileH * 0.85 * 2);
+          window.PTLevelShared?.applyPlayerSizing?.(p, tileW, tileH);
           p.body.setCollideWorldBounds(true);
-          p.body.setSize(p.displayWidth, p.displayHeight, false);
-          p.body.setOffset(0, 0);
           p.body.setDragX(tuning.dragX);
           p.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
           this.physics.add.collider(p, this.solids);
@@ -377,16 +373,20 @@
         this.physics.add.overlap(this.p2, this.winSensors, () => finish("P2"));
 
         // inputs (from settings)
+        // Race: left player uses WASD, right player uses arrow keys.
+        // Our keybind UI defines p1=arrows, p2=WASD by default, so we swap them in race.
         const kb = (window.__PT_getKeybinds && window.__PT_getKeybinds()) || state.keybinds || {
           p1: { left: "ArrowLeft", right: "ArrowRight", jump: "ArrowUp" },
           p2: { left: "KeyA", right: "KeyD", jump: "KeyW" },
         };
-        const p1Left = codeToPhaserKeyCode(kb.p1.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
-        const p1Right = codeToPhaserKeyCode(kb.p1.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
-        const p1Jump = codeToPhaserKeyCode(kb.p1.jump) ?? Phaser.Input.Keyboard.KeyCodes.SPACE;
-        const p2Left = codeToPhaserKeyCode(kb.p2.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
-        const p2Right = codeToPhaserKeyCode(kb.p2.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
-        const p2Jump = codeToPhaserKeyCode(kb.p2.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const leftKb = kb.p2 || kb.p1;
+        const rightKb = kb.p1 || kb.p2;
+        const p1Left = codeToPhaserKeyCode(leftKb.left) ?? Phaser.Input.Keyboard.KeyCodes.A;
+        const p1Right = codeToPhaserKeyCode(leftKb.right) ?? Phaser.Input.Keyboard.KeyCodes.D;
+        const p1Jump = codeToPhaserKeyCode(leftKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.W;
+        const p2Left = codeToPhaserKeyCode(rightKb.left) ?? Phaser.Input.Keyboard.KeyCodes.LEFT;
+        const p2Right = codeToPhaserKeyCode(rightKb.right) ?? Phaser.Input.Keyboard.KeyCodes.RIGHT;
+        const p2Jump = codeToPhaserKeyCode(rightKb.jump) ?? Phaser.Input.Keyboard.KeyCodes.UP;
 
         this.p1Keys = this.input.keyboard.addKeys({ left: p1Left, right: p1Right, jump: p1Jump });
         this.p2Keys = this.input.keyboard.addKeys({ left: p2Left, right: p2Right, jump: p2Jump });
@@ -463,9 +463,9 @@
         if (p1Left) this.p1.setVelocityX(-pSpeed);
         else if (p1Right) this.p1.setVelocityX(pSpeed);
         else this.p1.setVelocityX(0);
-        if (p1Left) this.p1.setTexture("char_left");
-        else if (p1Right) this.p1.setTexture("char_right");
-        else this.p1.setTexture("char_front");
+        if (p1Left) window.PTLevelShared?.setCharacterPose?.(this.p1, "left", this.time?.now);
+        else if (p1Right) window.PTLevelShared?.setCharacterPose?.(this.p1, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.p1, "front", this.time?.now);
         const p1Jump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (p1Jump && (this.p1.body.blocked.down || this.p1.body.touching.down)) this.p1.setVelocityY(jumpV);
 
@@ -475,9 +475,9 @@
         if (p2Left) this.p2.setVelocityX(-pSpeed);
         else if (p2Right) this.p2.setVelocityX(pSpeed);
         else this.p2.setVelocityX(0);
-        if (p2Left) this.p2.setTexture("char_left");
-        else if (p2Right) this.p2.setTexture("char_right");
-        else this.p2.setTexture("char_front");
+        if (p2Left) window.PTLevelShared?.setCharacterPose?.(this.p2, "left", this.time?.now);
+        else if (p2Right) window.PTLevelShared?.setCharacterPose?.(this.p2, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.p2, "front", this.time?.now);
         const p2Jump = Phaser.Input.Keyboard.JustDown(this.p2Keys.jump);
         if (p2Jump && (this.p2.body.blocked.down || this.p2.body.touching.down)) this.p2.setVelocityY(jumpV);
       },

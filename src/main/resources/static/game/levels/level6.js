@@ -166,14 +166,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.dead = false;
         this.lastRespawnAt = -1e9;
@@ -319,9 +317,8 @@
         this.bornY = by;
 
         this.player = this.physics.add.sprite(bx, by, "char_front").setOrigin(0.5, 1);
-        this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+        window.PTLevelShared?.applyPlayerSizing?.(this.player, tileW, tileH);
         this.player.body.setCollideWorldBounds(true);
-        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
         this.player.body.setDragX(tuning.dragX);
         this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
 
@@ -454,29 +451,28 @@
         if (sTouch2) {
           this.physics.add.overlap(this.player, sTouch2, () =>
             oneShot("touch2", () => {
-              // dmove spikes：下移时同步旋转，一个左转 90 度，一个右转 90 度；随后左移并消失
+              // dmove spikes: move down 5 tiles, then left 2 tiles (medium), then disappear.
               revealSpikes(this.spikesDmoveL4);
-              let remaining = this.spikesDmoveL4.length;
+              // dmover spikes: start after ~3.5s, move down 5 tiles then fly right until off-map.
+              let dmoverStarted = false;
               const startDmover = () => {
-                // dmover：等 dmove 全部消失后再出现/移动
+                if (dmoverStarted) return;
+                dmoverStarted = true;
                 revealSpikes(this.spikesDmoverL4);
                 for (const o of this.spikesDmoverL4) {
                   window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                     y: o.y + tileH * 5,
                     duration: 650,
                     ease: "Sine.easeInOut",
-                    onComplete: () => {
-                      // 中等速度向右移出地图后消失
-                      startFly([o], 220);
-                    },
+                    onComplete: () => startFly([o], 220),
                   });
                 }
               };
-              this.spikesDmoveL4.forEach((o, index) => {
-                const rotateBy = index % 2 === 0 ? -90 : 90;
+              this.time?.delayedCall?.(3500, startDmover);
+
+              this.spikesDmoveL4.forEach((o) => {
                 window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                   y: o.y + tileH * 5,
-                  angle: (typeof o.angle === "number" ? o.angle : 0) + rotateBy,
                   duration: 650,
                   ease: "Sine.easeInOut",
                   onComplete: () => {
@@ -489,14 +485,11 @@
                         o._sensor?.destroy?.();
                         if (o.body) o.body.enable = false;
                         o.destroy();
-                        remaining -= 1;
-                        if (remaining <= 0) startDmover();
                       },
                     });
                   },
                 });
               });
-              if (this.spikesDmoveL4.length === 0) startDmover();
             })
           );
         }
@@ -597,9 +590,9 @@
         if (left) this.player.setVelocityX(-speed);
         else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
-        if (left) this.player.setTexture("char_left");
-        else if (right) this.player.setTexture("char_right");
-        else this.player.setTexture("char_front");
+        if (left) window.PTLevelShared?.setCharacterPose?.(this.player, "left", this.time?.now);
+        else if (right) window.PTLevelShared?.setCharacterPose?.(this.player, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.player, "front", this.time?.now);
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);

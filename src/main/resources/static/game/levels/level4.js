@@ -157,14 +157,12 @@
 
     const scene = {
       preload: function () {
-        this.load.image("char_front", new URL(assets.characterFront, window.location.href).toString());
-        this.load.image("char_left", new URL(assets.characterLeft, window.location.href).toString());
-        this.load.image("char_right", new URL(assets.characterRight, window.location.href).toString());
+        window.PTLevelShared?.loadCharacterSprites?.(this, assets);
         for (const [url, key] of imageToKey.entries()) this.load.image(key, url);
       },
       create: function () {
         state.levelScene = this;
-        window.__PT_makeSpriteBgTransparent?.(this, ["char_front", "char_left", "char_right"]);
+        window.PTLevelShared?.makeCharacterSpritesTransparent?.(this);
         this.finished = false;
         this.touchTriggered = false;
         this.touch2Triggered = false;
@@ -232,10 +230,8 @@
 
         // player
         this.player = this.physics.add.sprite(spawnX, spawnY, "char_front").setOrigin(0.5, 1);
-        this.player.setDisplaySize(tileW * 0.6 * 2, tileH * 0.9 * 2);
+        window.PTLevelShared?.applyPlayerSizing?.(this.player, tileW, tileH);
         this.player.body.setCollideWorldBounds(true);
-        this.player.body.setSize(this.player.displayWidth, this.player.displayHeight, false);
-        this.player.body.setOffset(0, 0);
         this.player.body.setMaxVelocity(tuning.maxVx, tuning.maxVy);
         this.player.body.setDragX(tuning.dragX);
         this.physics.add.collider(this.player, this.solids);
@@ -351,6 +347,7 @@
       update: function () {
         if (!this.player?.body) return;
         if (this.player.x < -tileW || this.player.x > worldW + tileW || this.player.y < -tileH || this.player.y > worldH + tileH) {
+          window.PTLevelShared?.playFallDeathSfx?.();
           this.respawnPlayer();
           return;
         }
@@ -376,9 +373,9 @@
         if (left) this.player.setVelocityX(-speed);
         else if (right) this.player.setVelocityX(speed);
         else this.player.setVelocityX(0);
-        if (left) this.player.setTexture("char_left");
-        else if (right) this.player.setTexture("char_right");
-        else this.player.setTexture("char_front");
+        if (left) window.PTLevelShared?.setCharacterPose?.(this.player, "left", this.time?.now);
+        else if (right) window.PTLevelShared?.setCharacterPose?.(this.player, "right", this.time?.now);
+        else window.PTLevelShared?.setCharacterPose?.(this.player, "front", this.time?.now);
 
         const wantJump = Phaser.Input.Keyboard.JustDown(this.p1Keys.jump) || (mobile && window.__PT_consumeTouchJump?.());
         if (wantJump && (this.player.body.blocked.down || this.player.body.touching.down)) this.player.setVelocityY(tuning.jumpV);
