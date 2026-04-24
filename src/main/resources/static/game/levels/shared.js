@@ -604,7 +604,7 @@
         if (player.body?.setOffset) {
           const ox = Math.max(0, Math.round((dispW - bodyW) / 2));
           // Lift collision body a bit to avoid embedding into wall tiles.
-          const oy = Math.max(0, Math.round((dispH - bodyH) * 0.55));
+          const oy = Math.max(0, Math.round((dispH - bodyH) * 0.90));
           player.body.setOffset(ox, oy);
         }
       } catch {}

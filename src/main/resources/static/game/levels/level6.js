@@ -411,12 +411,17 @@
         const startFly = (targets, vx) => {
           for (const o of targets) {
             if (!o?.body) continue;
+            // 先停止所有运动
+            o.body.setVelocity(0, 0);
             o.body.setImmovable(true);
             o.body.setAllowGravity(false);
             o.body.allowGravity = false;
             o.body.moves = true;
             o.body.setVelocityX(vx);
-            if (o._sensor?.body) o._sensor.body.enable = true;
+            if (o._sensor?.body) {
+              o._sensor.body.enable = true;
+              // sensor 跟随对象移动：Arcade Physics 静态组不会自动移动，需要每帧同步
+            }
             window.PTLevelShared?.syncRectSensorToObject?.(o);
           }
         };
@@ -453,24 +458,42 @@
             oneShot("touch2", () => {
               // dmove spikes: move down 5 tiles, then left 2 tiles (medium), then disappear.
               revealSpikes(this.spikesDmoveL4);
-              // dmover spikes: start after ~3.5s, move down 5 tiles then fly right until off-map.
+              // Requirements:
+              // - dmove+death spikes rotate 90° (left) then execute: down 5 -> left 2 -> disappear.
+              // - dmover+death spikes rotate 90° (right), start after ~1.5s: down 5 -> then move right until off-map.
               let dmoverStarted = false;
               const startDmover = () => {
                 if (dmoverStarted) return;
                 dmoverStarted = true;
                 revealSpikes(this.spikesDmoverL4);
                 for (const o of this.spikesDmoverL4) {
+                  try {
+                    o.setAngle?.(90);
+                  } catch {}
                   window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                     y: o.y + tileH * 5,
                     duration: 650,
                     ease: "Sine.easeInOut",
-                    onComplete: () => startFly([o], 220),
+                    onComplete: () => {
+                      // 确保 body 停止 tween，然后启动飞行
+                      if (o.body) {
+                        o.body.reset(o.x, o.y); // 确保 body 位置与 game object 一致
+                        o.body.setVelocity(0, 0);
+                        o.body.moves = false;
+                      }
+                      window.PTLevelShared?.syncRectSensorToObject?.(o);
+                      startFly([o], 220);
+                    },
                   });
                 }
               };
-              this.time?.delayedCall?.(3500, startDmover);
+              this.time?.delayedCall?.(1500, startDmover);
 
               this.spikesDmoveL4.forEach((o) => {
+                // rotate left 90°
+                try {
+                  o.setAngle?.(-90);
+                } catch {}
                 window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
                   y: o.y + tileH * 5,
                   duration: 650,
@@ -495,11 +518,13 @@
         }
         if (sTouch3) {
           this.physics.add.overlap(this.player, sTouch3, () =>
-            oneShot("touch3", () => {
-              // four layer umove spikes move up 1 tile
-              revealSpikes(this.spikesUmoveL4);
-              moveTween(this.spikesUmoveL4, 0, -tileH * 1, 220, false);
-            })
+              oneShot("touch3", () => {
+                // 触发 touch3 后，touch1 也无法再触发
+                this.triggered.add("touch1");
+                // four layer umove+death spikes 只向上移动 1 格，不左右移动
+                revealSpikes(this.spikesUmoveL4);
+                moveTween(this.spikesUmoveL4, 0, -tileH * 1, 220, false);
+              })
           );
         }
         if (sTouch4) {

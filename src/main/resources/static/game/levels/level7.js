@@ -284,9 +284,11 @@
             const isWin = p.win === true;
             const isRmove = p.rmove === true;
             const isTouchKey = p.touch === true;
-            // 炸弹：部tsx（例dung2）没有给 bomb tile 配置 properties            // 这里用“属性优+ 贴图名兜底”识别，保证炸弹一定会走“初始隐藏”逻辑
-            const imgName = String(tile.imageSource || "").toLowerCase();
-            const isBomb = (p.death2 === true && p.falling === true) || imgName.includes("bomb");
+            // Bombs should be identified by properties (not by image name).
+            // Requirement: hide bombs with death2 + falling + visible (exactly those authored bombs).
+            // Requirement: hide bombs (death2 + falling + visible). In some TSX exports, `visible`
+            // might not be preserved in tile props, so treat death2+falling as bomb too.
+            const isBomb = p.death2 === true && p.falling === true;
 
             // render base tile unless we spawn it as object
 
@@ -316,10 +318,12 @@
               const o = spawnObjTile(col, row, tile, tileW * 2, tileH / 2, 26);
 
               this.dynamicDeadly.add(o);
-              // 需求：刺集体向右移1               o.x += tileW * 1;
-              // bug汇总：刺向左移动半格，向下移动 0.3 格（在现有基础上微调）
-              o.x -= tileW * 0.5;
-              o.y += tileH * 0.3;
+              // Requirement: spikes alignment
+              // - shift right by 1 tile
+              // - then down 1/4 tile and left 1/3 tile for aesthetics
+              o.x += tileW * 1;
+              o.x -= tileW / 3;
+              o.y += tileH / 4;
               if (o.body?.updateFromGameObject) o.body.updateFromGameObject();
 
               // death 判定区：与刺绑定，并同步到移动后位置
@@ -340,8 +344,6 @@
 
             if (isTouchKey) {
               const o = spawnObjTile(col, row, tile, tileW, tileH, 40);
-              o.setVisible(false);
-              o.body.enable = false;
               if (lname === "two") twoKey.push(o);
               else if (lname === "three") threeKey.push(o);
               continue;
@@ -378,8 +380,17 @@
         const restart = () => {
           if (this._restarting) return;
           this._restarting = true;
+          // play death immediately (avoid playing after respawn)
+          window.PTLevelShared?.playDieSfx?.();
           window.PTLevelShared?.restartLevel?.(ctx, levelId, window.SinglePlayerLevels?.startLevel7, 0);
         };
+
+        // World bounds death (use shared behavior, and restart level for level7).
+        window.PTLevelShared?.installWorldBoundsDeath?.(this, this.player, () => {
+          if (this.time.now < this._spawnGraceUntil) return;
+          window.PTLevelShared?.playFallDeathSfx?.();
+          restart();
+        });
 
         // death overlap
 

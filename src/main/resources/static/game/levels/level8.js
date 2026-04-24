@@ -124,6 +124,7 @@
         this.finished = false;
         this._tuning =
           window.PTLevelShared?.getDefaultPlayerTuning?.() || { speed: 300, jumpV: -920, gravityY: 900, maxVx: 320, maxVy: 900, dragX: 900 };
+        this.triggered = new Set();
 
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.physics.world.gravity.y = this._tuning.gravityY;
@@ -152,11 +153,67 @@
 
         this.solids = this.physics.add.staticGroup();
         this.deathSensors = this.physics.add.staticGroup();
-        this.winSensors = this.physics.add.staticGroup();
+        this.winSensors = this.physics.add.staticGroup(); // sensors synced to win doors
 
-        // Render tile layers as images + build collisions.
+        // Dynamic objects (need movement)
+        this.dynamicSolids = this.physics.add.group();
+        this.bombs = this.physics.add.group();
+        this.winDoors = this.physics.add.group();
 
+        const freezeObj = (o, solid = true) => {
+          if (!o?.body) return;
+          o.body.allowGravity = false;
+          if (o.body.setAllowGravity) o.body.setAllowGravity(false);
+          if (solid) {
+            o.body.immovable = true;
+            if (o.body.setImmovable) o.body.setImmovable(true);
+          }
+          o.body.moves = false;
+          o.body.setVelocity(0, 0);
+          if (!solid) o.body.enable = false;
+          if (o.body.updateFromGameObject) o.body.updateFromGameObject();
+        };
+
+        const spawnImageOrRect = (cx, cy, w, h, key, depth = 20) => {
+          if (!key) {
+            const r = this.add.rectangle(cx, cy, w, h, 0xff00ff, 0.16).setDepth(depth);
+            this.physics.add.existing(r);
+            return r;
+          }
+          const img = this.physics.add.image(cx, cy, key);
+          img.setDisplaySize(w, h);
+          img.setDepth(depth);
+          return img;
+        };
+
+        this.attachWinSensor = (door) => {
+          if (!door) return null;
+          const b = door.getBounds();
+          const s = this.add.rectangle(b.centerX, b.centerY, b.width, b.height, 0x00ff00, 0);
+          this.physics.add.existing(s, true);
+          this.winSensors.add(s);
+          door._winSensor = s;
+          return s;
+        };
+        this.syncWinSensor = (door) => {
+          const s = door?._winSensor;
+          if (!door || !s?.body) return;
+          const b = door.getBounds();
+          s.x = b.centerX;
+          s.y = b.centerY;
+          if (s.body.setSize) s.body.setSize(b.width, b.height, true);
+          if (s.body.updateFromGameObject) s.body.updateFromGameObject();
+        };
+
+        // Collect targets for triggers
+        const move1Targets = []; // layer two: fake+solid objects
+        const move3Targets = []; // layer four: fake OR solid objects
+        const bombObjs = []; // layer four: death2 bombs (initially hidden)
+        const winDoors = []; // doors that can be moved by move2
+
+        // Render tile layers as images + build collisions and dynamic objects.
         for (const layer of tileLayers) {
+          const layerName = String(layer.name || "").toLowerCase();
           const data = layer.data;
           for (let idx = 0; idx < mapW * mapH; idx++) {
             const tile = resolveTileFromGid(data[idx] || 0);
@@ -170,9 +227,60 @@
             const isWin = p.win === true;
             drawTile(cx, cy, tile, isWin ? tileW * 2 : tileW, isWin ? tileH * 2 : tileH, isWin ? 30 : 10);
 
-            if (p.solid === true) addStaticRect(this.solids, cx, cy);
+            // Death: keep as static sensors
             if (p.death === true) addStaticRect(this.deathSensors, cx, cy, tileW * 2, tileH / 2);
-            if (p.win === true) addStaticRect(this.winSensors, cx, cy, tileW * 2, tileH * 2);
+
+            // Win door: create a physical door object so it can be moved (move2 trigger).
+            if (p.win === true) {
+              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+              const key = url ? imageToKey.get(url) : null;
+              const door = spawnImageOrRect(cx, cy, tileW * 2, tileH * 2, key, 40);
+              freezeObj(door, true);
+              this.winDoors.add(door);
+              winDoors.push(door);
+              this.attachWinSensor(door);
+              continue;
+            }
+
+            // Bombs: layer four, death2 => hidden; on touch become visible then kill after 0.2s.
+            if (layerName === "four" && p.death2 === true) {
+              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+              const key = url ? imageToKey.get(url) : null;
+              const bomb = spawnImageOrRect(cx, cy, tileW, tileW, key, 35);
+              freezeObj(bomb, false);
+              bomb.setVisible?.(false);
+              if (bomb.body) bomb.body.enable = false;
+              this.bombs.add(bomb);
+              bombObjs.push(bomb);
+              continue;
+            }
+
+            // move1 targets: layer two fake+solid objects, move down then fall out on move1 sensor.
+            if (layerName === "two" && p.fake === true && p.solid === true) {
+              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+              const key = url ? imageToKey.get(url) : null;
+              const o = spawnImageOrRect(cx, cy, tileW, tileH, key, 25);
+              freezeObj(o, true);
+              this.dynamicSolids.add(o);
+              move1Targets.push(o);
+              continue;
+            }
+
+            // move3 targets: layer four fake objects + specifically-marked solid objects.
+            // Avoid turning the entire solid tilemap into dynamic bodies (would stall rendering).
+            const isSoild = p.soild === true; // authored typo compatibility
+            if (layerName === "four" && (p.fake === true || isSoild === true)) {
+              const url = resolveTilesetImageUrl(tile.imageSource, mapBase);
+              const key = url ? imageToKey.get(url) : null;
+              const o = spawnImageOrRect(cx, cy, tileW, tileH, key, 24);
+              freezeObj(o, true);
+              this.dynamicSolids.add(o);
+              move3Targets.push(o);
+              continue;
+            }
+
+            // Normal solids (static)
+            if (p.solid === true) addStaticRect(this.solids, cx, cy);
           }
         }
 
@@ -185,6 +293,7 @@
         this.player.body.setDragX(this._tuning.dragX);
         this.player.body.setMaxVelocity(this._tuning.maxVx, this._tuning.maxVy);
         this.physics.add.collider(this.player, this.solids);
+        this.physics.add.collider(this.player, this.dynamicSolids, (_a, b) => b?.body?.updateFromGameObject?.());
 
         // death => restart level (重置事件)
 
@@ -202,6 +311,123 @@
           } catch {}
           if (typeof onLevelWin === "function") onLevelWin(levelId);
         });
+
+        // Bomb interaction: on touch => show bomb, after 0.2s kill player.
+        const bombHitOnce = new Set();
+        this.physics.add.overlap(this.player, this.bombs, (_p, bomb) => {
+          if (!bomb || bombHitOnce.has(bomb)) return;
+          bombHitOnce.add(bomb);
+          bomb.setVisible?.(true);
+          if (bomb.body) bomb.body.enable = true;
+          this.time.delayedCall(200, () => {
+            if (this.finished) return;
+            window.PTLevelShared?.playDieSfx?.();
+            restart?.();
+          });
+        });
+
+        // Trigger sensors from object layers: move1/move2/move3
+        const oneShot = (k, fn) => {
+          if (this.triggered.has(k)) return;
+          this.triggered.add(k);
+          fn();
+        };
+        const makeSensorFromObj = (obj) => {
+          if (!obj) return null;
+          const x = Number(obj.x || 0);
+          const y = Number(obj.y || 0);
+          const w = Math.max(4, Number(obj.width || tileW));
+          const h = Math.max(4, Number(obj.height || tileH));
+          const s = this.add.rectangle(x + w / 2, y + h / 2, w, h, 0x00ffff, 0);
+          this.physics.add.existing(s, true);
+          return s;
+        };
+        const objByProp = (name) =>
+          objects.find((o) => propTrue(o.properties, name) || hasPropName(o, name) || String(o.name || "").toLowerCase() === String(name).toLowerCase()) || null;
+        const oMove1 = objByProp("move1");
+        const oMove2 = objByProp("move2");
+        const oMove3 = objByProp("move3");
+        const sMove1 = makeSensorFromObj(oMove1);
+        const sMove2 = makeSensorFromObj(oMove2);
+        const sMove3 = makeSensorFromObj(oMove3);
+
+        if (sMove1) {
+          this.physics.add.overlap(this.player, sMove1, () =>
+            oneShot("move1", () => {
+              // two layer fake+solid objects: down 6 tiles, stop 2s, then fly out (or disappear).
+              for (const o of move1Targets) {
+                window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
+                  y: o.y + tileH * 6,
+                  duration: 600,
+                  ease: "Sine.easeInOut",
+                });
+                this.time.delayedCall(2000, () => {
+                  // fast drop out of map then destroy
+                  window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
+                    y: worldH + tileH * 6,
+                    duration: 500,
+                    ease: "Cubic.easeIn",
+                    onComplete: () => {
+                      try {
+                        if (o.body) o.body.enable = false;
+                        o.destroy();
+                      } catch {}
+                    },
+                  });
+                });
+              }
+            })
+          );
+        }
+
+        if (sMove3) {
+          this.physics.add.overlap(this.player, sMove3, () =>
+            oneShot("move3", () => {
+              // four layer fake+solid objects: move right 37 tiles at 1 tile/sec, then disappear.
+              const dx = tileW * 37;
+              const duration = 37000;
+              for (const o of move3Targets) {
+                window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, o, {
+                  x: o.x + dx,
+                  duration,
+                  ease: "Linear",
+                  onComplete: () => {
+                    try {
+                      if (o.body) o.body.enable = false;
+                      o.destroy();
+                    } catch {}
+                  },
+                });
+              }
+            })
+          );
+        }
+
+        if (sMove2) {
+          this.physics.add.overlap(this.player, sMove2, () =>
+            oneShot("move2", () => {
+              // win doors move down 11 tiles over 10 seconds; when finished, disable win sensor.
+              const dy = tileH * 11;
+              const duration = 10000;
+              for (const door of winDoors) {
+                if (!door) continue;
+                window.PTLevelShared?.tweenObjectsWithBodyAndSensorSync?.(this, door, {
+                  y: door.y + dy,
+                  duration,
+                  ease: "Linear",
+                  onUpdate: () => this.syncWinSensor(door),
+                  onComplete: () => {
+                    const s = door._winSensor;
+                    if (s?.body) s.body.enable = false;
+                    try {
+                      s?.destroy?.();
+                    } catch {}
+                  },
+                });
+              }
+            })
+          );
+        }
 
         // input
 
@@ -235,6 +461,9 @@
           window.PTLevelShared?.playFallDeathSfx?.();
           window.PTLevelShared?.restartLevel?.(ctx, levelId);
         }
+
+        // Sync win sensors to doors (when doors tween).
+        for (const door of this.winDoors.getChildren()) this.syncWinSensor(door);
       },
     };
 
